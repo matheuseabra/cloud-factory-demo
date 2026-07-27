@@ -156,10 +156,12 @@ Include the spec-alignment result in the PR description and final issue comment.
 2. If `PRODUCT.md` exists for the issue, pass its path and treat it as the source of user stories and acceptance criteria verification must exercise.
 3. For multi-story features, **fan out parallel computer-use (or isolated browser) subagents per key user story** via orchestration, then aggregate results.
 4. Launch verification against the implementation branch (or the commit about to be pushed) with computer use enabled on the verification child runs (`remote.computer_use_enabled: true` / `oz agent run-cloud --computer-use`).
-5. Prefer **video** of each critical path; add screenshots for keyframes or static visual checks.
-6. If verification fails because of your change, fix the implementation and re-run verification before opening the PR when practical.
-7. If verification is blocked (missing display, secrets, flaky environment, computer use unavailable), post an explicit verification-gap comment with the blocker. Still do not claim behavioral verification passed.
-8. Do **not** skip this step because PR creation failed. Verification is independent of opening the PR.
+5. Prefer **video** of each critical path (required when capture is possible); add screenshots for keyframes or static visual checks.
+6. Ensure verification evidence is stored as **Oz run artifacts** and **posted back to the GitHub issue** (attach the video and key screenshots on an issue comment, and on the PR when one exists). Include `https://oz.warp.dev/runs/<id>` links.
+7. If verification fails because of your change, fix the implementation and re-run verification before opening the PR when practical.
+8. If verification is blocked (missing display, secrets, flaky environment, computer use unavailable, video capture unavailable), post an explicit verification-gap comment with the blocker. Still do not claim behavioral verification passed.
+9. Do **not** skip this step because PR creation failed. Verification is independent of opening the PR.
+10. Do not claim the UI implementation is complete until verify-behavior has produced Oz artifacts and a GitHub evidence comment (or an explicit blocker).
 
 Skip this step only for non-visual changes, when the skill file is missing, or when the repository truly has no runnable UI. Do not claim end-to-end behavioral verification unless verify-behavior ran or you captured equivalent computer-use/browser evidence.
 
@@ -180,7 +182,7 @@ The PR description should include:
 - Summary of the change
 - Validation commands run and their results
 - Spec-alignment validation results, if specs exist
-- Behavior verification results from `verify-behavior` when it ran, including status, Oz run link, and video/screenshot evidence references
+- Behavior verification results from `verify-behavior` when it ran, including status, Oz run link, video artifact references, and confirmation that evidence was posted on the GitHub issue
 - Known limitations, follow-up work, or validation gaps
 
 Associate the PR with the issue in GitHub:
@@ -198,7 +200,7 @@ Only after opening the PR, post a final comment on the original issue with:
 - Brief summary of what was implemented
 - Validation performed
 - Spec-alignment validation result, if specs exist
-- Behavior verification summary and evidence links, if `verify-behavior` ran
+- Behavior verification summary, Oz run links, and attached/linked video+screenshot evidence, if `verify-behavior` ran
 - Any known limitations or reviewer notes
 
 The final issue comment must include the PR URL. A comment that says implementation is complete or that a PR will be opened later is not acceptable.
@@ -216,6 +218,6 @@ If no PR was created, post why implementation did not proceed and what concrete 
 - Do not claim validation passed if it was not run or failed.
 - Do not claim spec alignment if `validate-changes-match-specs` was not run or an equivalent manual comparison was not performed.
 - Do not claim interactive behavior was verified unless `verify-behavior` (or equivalent computer-use/browser evidence) was collected.
-- For interactive/UI issues, do not treat the implementation as complete until `verify-behavior` has been attempted (pass or explicit blocker).
+- For interactive/UI issues, do not treat the implementation as complete until `verify-behavior` has been attempted (pass or explicit blocker) **and** video/screenshot evidence is on the Oz run and posted to the GitHub issue (or an explicit blocker explains the gap).
 - Do not post a final success comment unless a pull request has already been opened and the comment includes the PR URL. If PR creation is blocked, still report verification results on the issue.
 - Post progress sparingly: always post the implementation-started comment, then post at most two additional progress comments before the final PR link unless blocked or explicitly asked for more updates.
