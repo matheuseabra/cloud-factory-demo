@@ -61,8 +61,12 @@ jobs:
             use, or verify-behavior), you MUST run
             `.agents/skills/verify-behavior/SKILL.md` in `verify` mode after the
             code change, with computer use enabled on verification child runs.
-            Capture video/screenshot evidence before claiming success. Do not skip
-            verification because unit tests passed or because PR creation failed.
+            Capture **video** (required when possible) plus keyframe screenshots.
+            Upload evidence as Oz run artifacts and post it back to the GitHub
+            issue as comment attachments (and on the PR when opened), including
+            `https://oz.warp.dev/runs/<id>` links. Do not skip verification
+            because unit tests passed or because PR creation failed. Do not claim
+            success without the GitHub evidence comment (or an explicit blocker).
 
             Then create a branch, push it, and open a GitHub pull request. Post
             implementation progress comments to the original issue as directed by

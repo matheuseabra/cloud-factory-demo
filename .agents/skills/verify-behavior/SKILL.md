@@ -7,7 +7,7 @@ description: Launch Oz cloud agents to reproduce bugs or verify features/fixes w
 
 Prove or disprove visible product behavior for **bugs and greenfield features**. Other agents (triage, implementation, review) invoke this instead of driving the UI themselves.
 
-Default evidence: **video** of the critical path, plus keyframe screenshots. Screenshots alone only when a single frame is clearer or video is unavailable.
+Default evidence: **video** of the critical path is required whenever capture is possible, plus keyframe screenshots. Screenshots alone are a fallback only when video tools are unavailable — say so explicitly.
 
 ## Modes
 
@@ -148,7 +148,7 @@ Oz run links must use https://oz.warp.dev/runs/<run-id> (or https://oz.staging.w
 
 ## Success / parent summary
 
-Success means: clear mode status; channel choice; PRODUCT.md story checklist outcomes when present; fan-out or explicit serialize reason for multi-story features; repeatable steps/setup; artifacts; no secrets.
+Success means: clear mode status; channel choice; PRODUCT.md story checklist outcomes when present; fan-out or explicit serialize reason for multi-story features; **video artifact on the Oz run** (or explicit video-unavailable blocker); **evidence posted on the GitHub issue** when an issue is in scope; repeatable steps/setup; no secrets.
 
 ```text
 Behavior verification:
@@ -158,13 +158,58 @@ Behavior verification:
 - Evidence / findings / next step
 ```
 
+
+## Posting evidence back to GitHub
+
+When this skill is invoked from a factory parent that has a GitHub issue/PR, evidence must land in **two** places:
+
+1. **Oz run artifacts** — upload video/screenshots/manifest via the harness artifact mechanism so they appear on the Oz run.
+2. **GitHub issue (and PR when one exists)** — parent or verify worker must post a comment that embeds or links the evidence.
+
+### How to post to GitHub
+
+Prefer attaching files with `gh` so they become issue assets, not just remote links:
+
+```bash
+# After evidence files exist locally in the run workspace:
+gh issue comment <N> --repo <owner/repo> \
+  --body "$(cat <<'EOF'
+## Behavior verification evidence
+- Mode: verify
+- Status: verified | partially verified | not verified | blocked
+- Oz verify run: https://oz.warp.dev/runs/<verify-run-id>
+- Oz implement run: https://oz.warp.dev/runs/<parent-run-id>  # if applicable
+
+### Video
+Primary critical-path recording attached (or linked if upload fails).
+
+### Keyframes
+Screenshots attached for idle, action, success/failure states.
+EOF
+)" \
+  --attach ~/verify-behavior-<issue>/01-critical-path.mp4 \
+  --attach ~/verify-behavior-<issue>/01-idle.png \
+  --attach ~/verify-behavior-<issue>/02-after-action.png
+```
+
+If `--attach` is unavailable or fails, upload via `gh api` to the issue comments/assets endpoint or include durable Oz artifact URLs **and** note the upload failure.
+
+Rules:
+
+- Video first. Filename like `01-critical-path.mp4` / harness recording name.
+- Comment must include the Oz run URL using `https://oz.warp.dev/runs/<id>` (never `app.warp.dev/run/`).
+- Do not claim verification complete until Oz artifacts exist **and** the GitHub issue comment with evidence has been posted (or an explicit blocker explains why posting failed).
+- Parents (implementation/triage/review) are responsible for ensuring this handoff happens if the verify child cannot comment itself.
+
 ## Guardrails
 
 - Cloud verification subagent over local clicking
 - Features are first-class; not bug-fix-only
 - PRODUCT.md defines stories when present
 - Multi-story verify defaults to parallel workers
-- Video preferred; no claim without evidence/blocker
+- Video required when capture is possible; screenshots are supplemental/fallback
+- When a GitHub issue is in scope, post evidence to the issue (attach video/screenshots) and include Oz run links
+- No claim of verification without Oz artifacts + GitHub evidence post (or explicit blocker)
 - Bounded batches; no secret leakage; no irreversible actions without human confirmation
 
 Optional `verify-behavior-local` may specialize setup/surface/fan-out limits only—not weaken evidence, privacy, or reporting.
