@@ -65,8 +65,6 @@ When `PRODUCT.md` exists it is the primary source of stories and acceptance crit
 
 ### Delegation task shape
 
-Keep the task concrete. Example fields to include in the `computer_use` task:
-
 ```text
 Mode: verify | reproduce
 Branch/ref: <implementation head or baseline>
@@ -94,6 +92,17 @@ Screenshots-only is allowed only when recording was attempted and failed, with t
 
 A verification that never delegated to `computer_use` on a computer-use-enabled run is **incomplete**.
 
+### Screenshot captions (required on GitHub)
+
+Whenever a screenshot is posted back to a **GitHub issue or PR** — including platform-managed evidence blocks, PR body sections, issue comments, and any other evidence summary — put a **concise caption immediately below** each screenshot that states:
+
+1. The **UI state or test case** being verified (e.g. idle preview, in-flight submit, settled error)
+2. **What the screenshot demonstrates** relative to the acceptance check (e.g. overlay present with spinner; overlay cleared)
+
+Apply captions for managed markdown (e.g. `![…](…)` from artifact helpers) and for any hand-written evidence summary. Prefer short one-liners under each image; do not dump long prose. If the platform helper only supplies alt text, still add an explicit caption line under the image in the issue/PR write-up when you control that text.
+
+Do **not** invent unsupported upload commands to satisfy captions. Captions travel with whatever evidence path the platform already supports.
+
 ## Report shape
 
 ```text
@@ -102,7 +111,7 @@ Behavior verification:
 - Status / issue-PR / branch-ref
 - PRODUCT.md stories: n passed / failed / blocked / not run
 - Oz run: https://oz.warp.dev/runs/<id>
-- Evidence: native video (required for flows) + screenshots (supplementary)
+- Evidence: native video (required for flows) + captioned screenshots (supplementary)
 - Findings / next step
 ```
 
@@ -116,9 +125,10 @@ Behavior verification:
 - Do not call `request_computer_use` or parent-level recording APIs
 - No ffmpeg or external recorders
 - Native Oz video required for meaningful UI flows; screenshots supplement
+- Every GitHub-posted screenshot needs a concise caption (state/case + what it shows)
 - Durable Oz run/artifact links on issue and PR write-ups; no fake GitHub binary-attach of Oz recordings
 - Features are first-class; PRODUCT.md drives coverage when present
 - Bounded fan-out; no secrets in prompts, screenshots, or reports
 - No claim of verification without evidence or an explicit blocker
 
-Optional `verify-behavior-local` may specialize setup/surface/fan-out only — not weaken evidence, privacy, or this contract.
+Optional `verify-behavior-local` may specialize setup/surface/fan-out only — not weaken evidence, privacy, captions, or this contract.

@@ -1,172 +1,109 @@
 ---
 name: review-pr
-description: Review a pull request diff and write structured feedback to review.json for the workflow to publish. Use when reviewing a checked-out PR from local artifacts like pr_diff.txt and pr_description.txt and producing machine-readable review output instead of posting directly to GitHub. For interactive or UI behavior that a diff cannot prove, optionally invoke the verify-behavior skill as a cloud computer-use subagent and fold its findings into the same review.json.
+description: Review a PR from local annotated-diff artifacts and write validated review.json for the workflow to publish. Use for machine-readable PR review instead of posting to GitHub directly. Optionally fold verify-behavior computer-use findings into the same review.json for UI changes.
 ---
 
 # Review PR
 
-Review the current pull request and write the output to `review.json`.
+Write `review.json` for the checked-out PR. Do **not** post to GitHub.
 
-This skill is repository-agnostic. It works for any GitHub repository that can supply an annotated PR diff and optional product/tech specs. A separate workflow or apply job is responsible for posting the review to GitHub.
+## Inputs
 
-## Context
-
-- The working directory is the PR branch checkout.
-- The workflow usually provides an annotated diff in `pr_diff.txt`.
-- The workflow usually provides the PR description in `pr_description.txt`.
-- If `spec_context.md` exists, it contains product and/or technical specs for implementation-vs-spec validation.
-- When the prompt references `.agents/skills/review-pr/scripts/resolve_spec_context.py`, use that script to materialize `spec_context.md` on demand instead of expecting spec content to be embedded in the prompt.
-- If `pr_diff.txt` is missing but a raw unified diff is available, generate the annotated form with:
+- Working tree = PR branch
+- `pr_diff.txt` (annotated). If only a raw diff exists:
   ```sh
   python3 .agents/skills/review-pr/scripts/annotate_diff.py --input raw_diff.txt --output pr_diff.txt
   ```
-- Focus on files and lines changed by this PR.
-- Do not post comments or reviews to GitHub directly.
+- `pr_description.txt` when present
+- `spec_context.md` when present (or build via `resolve_spec_context.py` if the prompt says so)
+- Optional companions only when referenced: `review-pr-local`, `check-impl-against-spec`, `security-review-pr`, `verify-behavior` — same `review.json`; companions must not change schema, severities, safety, evidence, suggestion, or line contracts
 
-## Review Scope
+## Scope
 
-- Prioritize correctness, security, error handling, regressions, and meaningful performance issues.
-- Prefer findings grounded in the annotated diff and nearby code in the checkout.
-- When `spec_context.md` exists, compare the implementation against the product and tech commitments in that file. Treat material spec drift as a review concern.
-- If the consuming repository provides a local `check-impl-against-spec` skill, use it when `spec_context.md` exists and fold its findings into the same `review.json`.
-- If the consuming repository provides a local `security-review-pr` companion skill or the prompt requests a security pass, apply it as supplemental guidance and fold any security findings into the same `review.json` rather than emitting a separate output.
-- If the PR changes visible UI or interactive behavior and `.agents/skills/verify-behavior/SKILL.md` exists, optionally read that skill and launch it in `verify` mode against the PR head (features and fixes). For multi-story features, allow parallel story fan-out as that skill describes. Prefer video evidence. Fold material verification failures into `review.json` as important or critical findings, and summarize successful verification briefly in top-level `body`. Skip when the diff is non-visual, the skill is missing, or verification would not change the review outcome.
-- Include style or nit comments only when you can provide a concrete suggestion block.
-- If a concern involves untouched code, mention it in top-level `body` instead of an inline comment.
-- Only suggest new tests when they exercise a distinct code path or edge case. Do not suggest tests that only vary constructor inputs or struct fields when existing coverage already exercises the meaningful behavior.
-- When a PR is clearly a V0 or initial implementation, frame robustness suggestions such as timeouts, retries, and lifecycle management as optional future work rather than blocking concerns, unless they risk correctness, security, or data loss.
-- For documentation-only or specs-only PRs, focus on clarity, completeness, contradictions, and missing acceptance criteria rather than production-code concerns.
+Prioritize: correctness, security, error handling, regressions, material performance, material spec drift.
 
-## Repository-specific guidance
+- Findings must be grounded in the annotated diff + nearby checkout code
+- Inline comments only on paths/lines in this PR's annotated diff; otherwise top-level `body`
+- Style/nits only with a concrete suggestion block
+- New tests only for distinct paths/edge cases not already covered
+- V0/initial PRs: timeouts/retries/lifecycle as optional unless correctness/security/data-loss risk
+- Docs/specs-only: clarity, completeness, contradictions, missing acceptance criteria
+- UI/interactive + `verify-behavior` present: optional `verify` on PR head; fold failures as important/critical; brief success note in `body` only if it changes the review
 
-The consuming repository may ship a companion `review-pr-local` skill. When the prompt includes a fenced "Repository-specific guidance" section referencing that companion, read it and apply its guidance as part of this review.
+## Annotated lines (only location source)
 
-Guidance in the companion may never change:
+| Prefix | Side |
+|---|---|
+| `[OLD:n]` | `LEFT`, line `n` |
+| `[NEW:n]` | `RIGHT`, line `n` |
+| `[OLD:n,NEW:m]` context | `RIGHT`, line `m` |
 
-- the output JSON schema
-- the severity labels
-- the safety rules
-- the evidence rules
-- the suggestion-block constraints
-- the annotated-diff line contract
+Copy `path` / `side` / `line` (and range) from a real annotation. No annotation → `body`, not `comments`.
 
-If a companion file is not referenced in the prompt, rely on the core contract alone.
+## Comments
 
-## Diff Line Annotations
+Each `comments[].body` **starts** with exactly one:
 
-The annotated diff uses these prefixes:
+- `🚨 [CRITICAL]` — bugs, security, crashes, data loss
+- `⚠️ [IMPORTANT]` — logic, edge cases, missing error handling, material spec drift
+- `💡 [SUGGESTION]` — worthwhile improvements
+- `🧹 [NIT]` — cleanup **only** with a suggestion block
 
-- `[OLD:n]` for deleted lines on the old side. Use `"LEFT"`.
-- `[NEW:n]` for added lines on the new side. Use `"RIGHT"`.
-- `[OLD:n,NEW:m]` for unchanged context. Use `"RIGHT"` with line `m`.
+Rules: concise, actionable, no praise/hedging; prefer single-line; ranges ≤ 10 lines; verify each comment's coordinates against `pr_diff.txt` before emit.
 
-Treat these annotations as the only source of truth for inline comment locations. For every inline comment you emit, first identify the exact annotated line in `pr_diff.txt` and copy its path, side, and line number into `review.json`. Do not infer line numbers from prose, rendered GitHub views, file lengths, surrounding spec text, or unannotated snippets. If you cannot point to a specific `[NEW:n]`, `[OLD:n]`, or `[OLD:n,NEW:m]` line in the annotated diff, put the feedback in top-level `body` instead of `comments`.
-
-## Comment Requirements
-
-Every comment body must start with one of these labels:
-
-- `🚨 [CRITICAL]` for bugs, security issues, crashes, or data loss.
-- `⚠️ [IMPORTANT]` for logic problems, edge cases, missing error handling, or material spec drift.
-- `💡 [SUGGESTION]` for worthwhile improvements or better patterns.
-- `🧹 [NIT]` for cleanup only when the comment includes a suggestion block.
-
-Write comments with these constraints:
-
-- Be concise, direct, and actionable.
-- Do not add compliments or hedging.
-- Prefer single-line comments.
-- Keep ranges to at most 10 lines.
-- Restrict inline comments to lines that appear explicitly in the annotated PR diff.
-- Only create file-level or inline comments for files that exist in this PR's diff.
-- If the relevant file or line is not part of the diff, put the feedback in top-level `body` instead of `comments`.
-- Before adding each comment object, verify that its `path`, `side`, `line`, and optional `start_line`/`start_side` correspond to real annotations in the same file's diff section.
-
-## Suggestion Blocks
-
-When proposing a code change, use:
+## Suggestions
 
 ```suggestion
-<replacement code here>
+<replacement only>
 ```
 
-Before recommending a suggestion or claiming a bug, use the local checkout as a real coding agent: apply or otherwise exercise the hypothesized fix and validate it with the repository's available build, typecheck, lint, or targeted tests so the change compiles and does not introduce an obvious new failure. Prefer validated suggestions over speculative ones; if you cannot validate a fix, say so and avoid presenting untested code as ready to accept.
+- Exact file indentation; block replaces **exactly** `start_line`–`line` inclusive
+- Do not repeat lines outside that range (causes duplicates on apply)
+- Preserve brace/bracket/paren/`end` depth vs replaced lines
+- Multi-line: set `start_line`/`start_side` and `line`/`side`
+- Validate fixes with available build/typecheck/lint/targeted tests when practical; if unvalidated, say so — do not present speculative code as ready
 
-Rules:
+## Specs (`spec_context.md`)
 
-- Match the exact indentation of the original file.
-- Include only replacement code.
-- The block content replaces **exactly** the lines `start_line`–`line` inclusive. Every line inside the block becomes the new file content for that range, and GitHub leaves all other lines untouched.
-- Do **not** include lines outside that range. Lines above `start_line` and below `line` remain in the file; repeating them inside the block causes them to appear twice after the suggestion is committed.
-- Never open the block with a line that already appears immediately above `start_line`, and never close the block with a line that already appears immediately below `line`. If you need those lines as anchors, widen `start_line` or `line` so they are actually part of the replaced range.
-- Count brace, bracket, paren, and block-delimiter depth (`{`, `[`, `(`, `end`, etc.) across the original replaced lines and ensure the replacement ends at the same depth. Do not emit phantom closing tokens, and do not drop required ones.
-- When unsure of the surrounding context, widen `start_line`/`line` to include enough real lines from the diff rather than guessing at surrounding tokens.
-- For multi-line suggestions, set `start_line` and `start_side` to the first line, and `line` and `side` to the last line.
+Extract commitments → compare to diff/branch → flag **material** mismatches only (important+). Broad drift in `body`; inline only on changed lines. No drive-by alignment commentary. No useful specs → review on merits; mention absence only if it raises risk.
 
-## Spec Alignment
-
-When `spec_context.md` exists:
-
-1. Extract concrete commitments: required behaviors, constraints, affected areas, validation steps, and non-goals.
-2. Compare those commitments against `pr_diff.txt` and the checked-out branch.
-3. Flag material mismatches only. Harmless differences in naming, structure, or low-level technique are acceptable when they preserve the intended outcome.
-4. Put broad drift in top-level `body`. Add inline comments only when the mismatch can be tied to changed lines.
-5. Treat material drift as at least an important concern.
-6. If the implementation matches the specs closely enough, do not add comments just to mention alignment.
-
-If no useful spec context is available, review the PR on its own merits and note the missing specs only when that absence materially increases risk.
-
-## Output Format
-
-Create `review.json` with this shape:
+## `review.json` contract
 
 ```json
 {
   "verdict": "REJECT",
-  "body": "## Overview\n...\n\n## Concerns\n- ...\n\n## Verdict\nFound: 1 critical, 2 important, 3 suggestions\n\n**Request changes**",
-  "comments": [
-    {
-      "path": "path/to/file",
-      "line": 42,
-      "side": "RIGHT",
-      "start_line": 40,
-      "start_side": "RIGHT",
-      "body": "⚠️ [IMPORTANT] Short explanation\n\n```suggestion\nreplacement\n```"
-    }
-  ]
+  "body": "…",
+  "comments": []
 }
 ```
 
-Field rules:
+| Field | Rule |
+|---|---|
+| `verdict` | Required: `"APPROVE"` or `"REJECT"` only. `Approve` / `Approve with nits` → `APPROVE`; `Request changes` → `REJECT`. Must match `body` disposition. |
+| `body` | Required string (GitHub review body). Not `summary`. |
+| `comments` | Required array (empty OK). |
+| `path` | Repo-relative; must be in the diff. |
+| `line` / `side` | Required; `side` is `LEFT` or `RIGHT`. |
+| `start_line` / `start_side` | Multi-line only; `start_side` required if `start_line` set. |
 
-- `verdict` is required and must be exactly the string `"APPROVE"` or `"REJECT"` (uppercase). Map your final recommendation as: `Approve` or `Approve with nits` → `"APPROVE"`; `Request changes` → `"REJECT"`. The `verdict` and the human-readable recommendation in top-level `body` must agree.
-- Top-level `body` is the GitHub review body and is required. Use `body`, not `summary`, for the review overview and final recommendation.
-- `comments` is required and must be an array. Use an empty array when there are no inline comments.
-- `path` must be relative to the repository root.
-- `line` is required and must target the correct side.
-- `start_line` is optional and only for multi-line ranges. When `start_line` is present, `start_side` is required and must be `"LEFT"` or `"RIGHT"`.
-- `side` must be `"LEFT"` or `"RIGHT"`.
+### `body` minimum
 
-## Body Requirements
+Lead with **actionable findings by severity**, or one line that there are no findings.
 
-The top-level `body` must include:
+Also include only:
 
-- A high-level overview of the PR.
-- Important concerns and any untouched-code concerns that could not be commented inline.
-- Issue counts in the format `Found: X critical, Y important, Z suggestions`.
-- A final recommendation of `Approve`, `Approve with nits`, or `Request changes`. This recommendation must match the top-level `verdict` field (`Approve` / `Approve with nits` → `"APPROVE"`; `Request changes` → `"REJECT"`).
+- `Found: X critical, Y important, Z suggestions`
+- Disposition: `Approve` | `Approve with nits` | `Request changes` (matches `verdict`)
+- Untouched-code / out-of-diff concerns that could not be inline (if any)
 
-## Final Checks
+**Do not** include: PR change summaries, generic praise, restating the diff, low-value narration, or long overviews.
 
-Before returning or uploading `review.json`:
+## Validate (required)
 
-- Fix invalid JSON if validation fails.
-- Confirm line numbers match the annotated diff.
-- Run the bundled validator against the exact annotated diff you reviewed:
-  ```sh
-  python3 .agents/skills/review-pr/scripts/validate_review_json.py --review-json review.json --diff pr_diff.txt
-  ```
-  If the script reports any invalid comments, fix `review.json` and rerun it. Do not return or upload `review.json` until this validator passes. If the script path is not present at that exact location, locate `validate_review_json.py` under the loaded `review-pr` skill directory and run that copy with the same arguments.
-- Do not run `gh pr review`, `gh pr comment`, `gh api`, or any other command that posts to GitHub.
+```sh
+python3 .agents/skills/review-pr/scripts/validate_review_json.py --review-json review.json --diff pr_diff.txt
+```
 
-Your only output is the final `review.json`.
+Fix until it passes. If the path differs, use `validate_review_json.py` under the loaded `review-pr` skill dir.
+
+No `gh pr review` / `gh pr comment` / `gh api` posting. **Only output:** final `review.json`.
