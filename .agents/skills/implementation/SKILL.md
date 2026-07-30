@@ -23,7 +23,7 @@ If the checkout contains `.agents/skills/validate-changes-match-specs/SKILL.md`,
 
 If specs exist but the validation skill is missing, continue only if you can still manually compare the implementation against the specs. Report that the common validation skill was unavailable in the PR description and issue comment.
 
-If the checkout contains `.agents/skills/verify-behavior/SKILL.md` and the issue has visible UI, browser, desktop, mobile, or other interactive behavior, you **must** run that skill as a cloud computer-use / browser-use **subagent** before claiming the implementation is complete. Prefer that skill over driving the GUI yourself. Do not skip verification because PR creation failed or because automated unit tests passed.
+If the checkout contains `.agents/skills/verify-behavior/SKILL.md` and the issue has visible UI, browser, desktop, mobile, or other interactive behavior, you **must** run that skill before claiming the implementation is complete. It delegates to Oz's dedicated **`computer_use`** capability on this computer-use-enabled run — do not drive the GUI yourself and do not substitute generic remote children. Do not skip verification because PR creation failed or because automated unit tests passed.
 
 ### 3. Post an implementation-started status comment
 
@@ -154,16 +154,16 @@ Include the spec-alignment result in the PR description and final issue comment.
 
 1. Read that skill and follow its parent workflow in `verify` mode. This covers greenfield features and bug fixes alike.
 2. If `PRODUCT.md` exists for the issue, pass its path and treat it as the source of user stories and acceptance criteria verification must exercise.
-3. For multi-story features, **fan out parallel computer-use (or isolated browser) subagents per key user story** via orchestration, then aggregate results.
-4. Launch verification against the implementation branch (or the commit about to be pushed) with computer use enabled on the verification child runs (`remote.computer_use_enabled: true` / `oz agent run-cloud --computer-use`).
-5. Require **video of each critical path captured with Oz's native `start_recording` / `stop_recording` computer-use tools**. Never accept or request ffmpeg, x11grab, Playwright video, or any other hand-rolled recorder. Add screenshots as keyframes.
-6. Ensure verification evidence is stored as **Oz run artifacts** (the native recording publishes automatically) and **attached as binary assets on both the GitHub issue and the PR**. Include `https://oz.warp.dev/runs/<id>` links.
+3. Confirm this Oz cloud run has computer use enabled (`computer_use: true` / `--computer-use`). Do not launch generic remote children as a substitute for the dedicated computer-use capability.
+4. For multi-story features, fan out **bounded parallel `computer_use` delegations** (one key independent story each), then aggregate results. Stay single-delegation when stories are sequential or credentials are scarce.
+5. Delegate each verification unit to the platform **`computer_use`** capability with a concrete task: branch/ref, setup, story/checks, and expected evidence (native Oz session video of the critical path + reported screenshots). Do **not** call `request_computer_use`, parent-level `start_recording`/`stop_recording`, or invent custom recorder plumbing — permission and recording are handled inside the computer-use subagent.
+6. Require a **native Oz video artifact** for meaningful UI flows, plus durable `https://oz.warp.dev/runs/<id>` links on the issue and PR. Screenshots are supplementary. Prefer platform PR artifact helpers (e.g. `get_artifacts_for_pull_request_description`) when available. Do not invent `gh --attach` uploads of Oz recordings.
 7. If verification fails because of your change, fix the implementation and re-run verification before opening the PR when practical.
-8. If verification is blocked (missing display, secrets, flaky environment, computer use unavailable), post an explicit verification-gap comment with the blocker. "Video unavailable" is only acceptable when `start_recording` was actually called and its error text is quoted. Still do not claim behavioral verification passed.
+8. If verification is blocked (computer use not enabled, missing display/secrets, subagent reports recording failure), post an explicit verification-gap comment with the blocker. Quote recording failures from the subagent. Still do not claim behavioral verification passed.
 9. Do **not** skip this step because PR creation failed. Verification is independent of opening the PR.
-10. Do not claim the UI implementation is complete until verify-behavior has produced Oz artifacts and a GitHub evidence comment (or an explicit blocker).
+10. Do not claim the UI implementation is complete until verify-behavior has produced Oz video/screenshot artifacts (or an explicit blocker) and the write-up includes durable Oz links.
 
-Skip this step only for non-visual changes, when the skill file is missing, or when the repository truly has no runnable UI. Do not claim end-to-end behavioral verification unless verify-behavior ran or you captured equivalent computer-use/browser evidence.
+Skip this step only for non-visual changes, when the skill file is missing, or when the repository truly has no runnable UI. Do not claim end-to-end behavioral verification unless verify-behavior ran via `computer_use` or you captured equivalent platform computer-use evidence.
 
 ### 10. Create a branch and pull request
 
@@ -182,7 +182,7 @@ The PR description should include:
 - Summary of the change
 - Validation commands run and their results
 - Spec-alignment validation results, if specs exist
-- Behavior verification results from `verify-behavior` when it ran, including status, Oz run link, the native recording, and the attached video/screenshot evidence on this PR
+- Behavior verification results from `verify-behavior` when it ran, including status, durable Oz run link(s), native Oz video artifact references, and any reported screenshots (prefer platform PR artifact markdown when available)
 - Known limitations, follow-up work, or validation gaps
 
 Associate the PR with the issue in GitHub:
@@ -200,7 +200,7 @@ Only after opening the PR, post a final comment on the original issue with:
 - Brief summary of what was implemented
 - Validation performed
 - Spec-alignment validation result, if specs exist
-- Behavior verification summary, Oz run links, and attached/linked video+screenshot evidence, if `verify-behavior` ran
+- Behavior verification summary, durable Oz run links, and native video/screenshot artifact references, if `verify-behavior` ran
 - Any known limitations or reviewer notes
 
 The final issue comment must include the PR URL. A comment that says implementation is complete or that a PR will be opened later is not acceptable.
@@ -217,8 +217,8 @@ If no PR was created, post why implementation did not proceed and what concrete 
 - Do not ignore `PRODUCT.md` or `TECH.md` when they exist for the issue.
 - Do not claim validation passed if it was not run or failed.
 - Do not claim spec alignment if `validate-changes-match-specs` was not run or an equivalent manual comparison was not performed.
-- Do not claim interactive behavior was verified unless `verify-behavior` (or equivalent computer-use/browser evidence) was collected.
-- For interactive/UI issues, do not treat the implementation as complete until `verify-behavior` has been attempted (pass or explicit blocker) **and** the native recording is on the Oz run **and** video/screenshot evidence is attached to both the GitHub issue and the PR (or an explicit blocker explains the gap).
-- Never instruct verification agents to use ffmpeg or any external screen recorder; Oz's native recording tools are the only supported capture path.
+- Do not claim interactive behavior was verified unless `verify-behavior` delegated to the dedicated `computer_use` capability (or equivalent platform computer-use evidence was collected).
+- For interactive/UI issues, do not treat the implementation as complete until `verify-behavior` has been attempted (pass or explicit blocker), a native Oz video artifact exists for meaningful UI flows (or a quoted recording failure), and durable Oz run/artifact links are on the issue and PR write-ups.
+- Never instruct verification to use ffmpeg or any external screen recorder; never call `request_computer_use` or parent-level recording APIs; never invent `gh --attach` for Oz videos. Recording stays inside the computer-use subagent.
 - Do not post a final success comment unless a pull request has already been opened and the comment includes the PR URL. If PR creation is blocked, still report verification results on the issue.
 - Post progress sparingly: always post the implementation-started comment, then post at most two additional progress comments before the final PR link unless blocked or explicitly asked for more updates.

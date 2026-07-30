@@ -60,24 +60,25 @@ jobs:
             mentioning drag-and-drop, screenshots, video, browser use, computer
             use, or verify-behavior), you MUST run
             `.agents/skills/verify-behavior/SKILL.md` in `verify` mode after the
-            code change, with computer use enabled on verification child runs.
+            code change. This outer run already has computer use enabled
+            (`computer_use: true`).
 
-            Video is REQUIRED and MUST be captured with Oz's native computer-use
-            recording tools: call `start_recording` before the critical path and
-            `stop_recording` after it. NEVER shell out to ffmpeg, x11grab,
-            avfoundation, Playwright video, or any other external recorder. The
-            native recording publishes to the Oz run automatically; upload only
-            keyframe screenshots and the manifest with `upload_artifact`. Only
-            report video as unavailable if `start_recording` actually failed, and
-            quote its error text.
+            Delegate GUI verification through Oz's dedicated `computer_use`
+            capability with a concrete task and expected evidence. Do NOT call
+            `request_computer_use` (it is emitted automatically when the
+            computer-use subagent starts). Do NOT call parent-level
+            `start_recording`/`stop_recording`, launch generic remote children as
+            a substitute, or shell out to ffmpeg/x11grab/avfoundation/Playwright
+            video. The computer-use subagent records natively and reports
+            screenshots.
 
-            Attach the video and key screenshots as real GitHub binary assets on
-            BOTH the issue (`gh issue comment --attach ...`) and the PR
-            (`gh pr comment --attach ...` or embedded in the PR body). Naming
-            filenames in text does not count. Include
-            `https://oz.warp.dev/runs/<id>` links. Do not skip verification
-            because unit tests passed or because PR creation failed. Do not claim
-            success without the attached GitHub evidence (or an explicit blocker).
+            Require a native Oz video artifact for meaningful UI flows, plus
+            durable `https://oz.warp.dev/runs/<id>` links on the issue and PR
+            write-ups. Screenshots are supplementary. Prefer platform PR artifact
+            helpers when available; do not invent `gh --attach` uploads of Oz
+            recordings. Do not skip verification because unit tests passed or
+            because PR creation failed. Do not claim success without the Oz
+            evidence links (or an explicit blocker).
 
             Then create a branch, push it, and open a GitHub pull request. Post
             implementation progress comments to the original issue as directed by
