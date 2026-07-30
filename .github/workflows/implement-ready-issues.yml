@@ -61,12 +61,23 @@ jobs:
             use, or verify-behavior), you MUST run
             `.agents/skills/verify-behavior/SKILL.md` in `verify` mode after the
             code change, with computer use enabled on verification child runs.
-            Capture **video** (required when possible) plus keyframe screenshots.
-            Upload evidence as Oz run artifacts and post it back to the GitHub
-            issue as comment attachments (and on the PR when opened), including
+
+            Video is REQUIRED and MUST be captured with Oz's native computer-use
+            recording tools: call `start_recording` before the critical path and
+            `stop_recording` after it. NEVER shell out to ffmpeg, x11grab,
+            avfoundation, Playwright video, or any other external recorder. The
+            native recording publishes to the Oz run automatically; upload only
+            keyframe screenshots and the manifest with `upload_artifact`. Only
+            report video as unavailable if `start_recording` actually failed, and
+            quote its error text.
+
+            Attach the video and key screenshots as real GitHub binary assets on
+            BOTH the issue (`gh issue comment --attach ...`) and the PR
+            (`gh pr comment --attach ...` or embedded in the PR body). Naming
+            filenames in text does not count. Include
             `https://oz.warp.dev/runs/<id>` links. Do not skip verification
             because unit tests passed or because PR creation failed. Do not claim
-            success without the GitHub evidence comment (or an explicit blocker).
+            success without the attached GitHub evidence (or an explicit blocker).
 
             Then create a branch, push it, and open a GitHub pull request. Post
             implementation progress comments to the original issue as directed by

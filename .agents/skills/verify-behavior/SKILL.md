@@ -1,13 +1,13 @@
 ---
 name: verify-behavior
-description: Launch Oz cloud agents to reproduce bugs or verify features/fixes with video or screenshot evidence. Chooses Chrome/Puppeteer browser automation or desktop computer use, and for multi-story features fans out parallel story workers. Use whenever triage needs visual reproduction, implementation needs behavioral proof, review needs interactive confirmation, or any factory stage asks to verify UI/app behavior.
+description: Launch Oz cloud agents to reproduce bugs or verify features/fixes, capturing video with Oz's native computer-use recording tools plus keyframe screenshots. Chooses Chrome/Puppeteer browser automation or desktop computer use, and for multi-story features fans out parallel story workers. Use whenever triage needs visual reproduction, implementation needs behavioral proof, review needs interactive confirmation, or any factory stage asks to verify UI/app behavior.
 ---
 
 # Verify behavior
 
 Prove or disprove visible product behavior for **bugs and greenfield features**. Other agents (triage, implementation, review) invoke this instead of driving the UI themselves.
 
-Default evidence: **video** of the critical path is required whenever capture is possible, plus keyframe screenshots. Screenshots alone are a fallback only when video tools are unavailable — say so explicitly.
+Default evidence: **video** of the critical path, captured with Oz's **native computer-use recording tools**, plus keyframe screenshots. Screenshots alone are never sufficient unless a `start_recording` attempt actually failed — see [Video capture](#video-capture-native-oz-recording).
 
 ## Modes
 
@@ -26,6 +26,33 @@ The verifying agent chooses. Parents may hint; do not hard-code unless the user 
 | **Computer use** (Oz desktop sandbox) | Desktop/mobile native; OS dialogs; native handoffs/login; windowing; Puppeteer unavailable; clearer full-desktop video; parallel isolated story sessions |
 
 Prefer browser use for pure web flows. Prefer computer use for native surfaces and native boundaries. If browser use hits a native wall mid-flow, switch rather than false-blocking. Record `Channel: browser-use | computer-use | hybrid` plus a one-line why.
+
+## Video capture (native Oz recording)
+
+Oz computer use has **built-in video recording**. Use it. Do not build your own capture pipeline.
+
+| Do | Don't |
+|---|---|
+| Call the `start_recording` tool before the critical path | Shell out to `ffmpeg`, `x11grab`, `avfoundation`, `wf-recorder`, `screencapture`, Playwright video, or any external recorder |
+| Call `stop_recording` with the returned `recording_id` when the path is done | Hand-roll frame stitching, GIF conversion, or screen-scraping loops |
+| Let the platform publish the recording as a run artifact | `upload_artifact` the video yourself — the platform already attaches it |
+| Tune only what the tool exposes (e.g. `summary`, `description`) | Pick codecs, frame rates, or encoder flags manually |
+
+Rules:
+
+1. When the run has computer use enabled, **`start_recording` before** the first interaction of the critical path.
+2. Keep the whole assigned story/repro path inside one recording when practical; short and focused beats long and idle.
+3. **`stop_recording`** once the path completes, before writing the report, so the artifact finalizes and publishes.
+4. Screenshots remain required as keyframes and are uploaded explicitly with `upload_artifact`.
+5. The recording appears on the Oz run automatically. Reference it in the report; do not re-upload it.
+
+If `start_recording` returns an error (feature unavailable, no display, recorder failed):
+
+- Quote the **actual error text** in the report.
+- Then, and only then, fall back to screenshots-only and label the status accordingly.
+- Never claim video was unavailable without an attempted `start_recording` and its error.
+
+A verification that never called `start_recording` on a computer-use-enabled run is **incomplete**, not verified.
 
 ## When to use / skip
 
@@ -101,7 +128,7 @@ Omit `model_id`/environment unless specified. Never put secrets in prompts. Pref
 ```text
 You are an Oz cloud verification agent.
 
-Goal: exercise the assigned bug path or feature story; choose browser use vs computer use; capture video by default + keyframe screenshots; report evidence, not opinions.
+Goal: exercise the assigned bug path or feature story; choose browser use vs computer use; capture video with Oz's native recording tools + keyframe screenshots; report evidence, not opinions.
 
 Mode: <reproduce | verify>
 Work shape: <single-path | assigned-story-worker>
@@ -115,20 +142,24 @@ Channel: prefer Puppeteer/Chrome MCP for in-browser web; computer use for native
 
 Setup: confirm env/tools; checkout assigned ref (verify=implementation/PR head; reproduce=baseline); start app from docs; smallest path to UI; block with logs/screenshots if startup fails.
 
+Video: call the native `start_recording` tool before the critical path and `stop_recording` after it. NEVER use ffmpeg/x11grab/avfoundation/Playwright video or any external recorder. Do not upload the recording yourself; the platform publishes it to the run. Only report "video unavailable" if `start_recording` actually failed, and quote its error.
+
 Evidence dir: ~/verify-behavior-<issue>-<story-or-primary>
-- Prefer critical-path video/trace; else ordered screenshots
+- Ordered keyframe screenshots covering each criterion
 - manifest.md: file, time, channel, story, visible state, action, outcome support
-- Upload via harness if available; else report paths
+- Upload screenshots/manifest via upload_artifact; report paths
 - Never include secrets/tokens/credentialed URLs
 
 Flow:
+0. start_recording (computer-use runs) before touching the UI
 1. Checklist before ad-hoc exploration
 2. Baseline state + evidence
 3. Exact reporter steps when relevant, then remaining assigned stories
 4. reproduce: stop when bug appears; note unreached stories
 5. verify: prove assigned feature story/checklist; greenfield is first-class; if also a fix, show failure is gone
 6. ≤2 targeted extra variations if inconclusive and supported by spec/issue
-7. No product code changes; story workers do not re-fan-out
+7. stop_recording before writing the report
+8. No product code changes; story workers do not re-fan-out
 
 Report:
 Verification summary: mode, work shape, channel, issue/PR, change type, PRODUCT.md, assigned story, status, branch/ref, setup, tools
@@ -148,7 +179,7 @@ Oz run links must use https://oz.warp.dev/runs/<run-id> (or https://oz.staging.w
 
 ## Success / parent summary
 
-Success means: clear mode status; channel choice; PRODUCT.md story checklist outcomes when present; fan-out or explicit serialize reason for multi-story features; **video artifact on the Oz run** (or explicit video-unavailable blocker); **evidence posted on the GitHub issue** when an issue is in scope; repeatable steps/setup; no secrets.
+Success means: clear mode status; channel choice; PRODUCT.md story checklist outcomes when present; fan-out or explicit serialize reason for multi-story features; **native recording artifact on the Oz run** (or a quoted `start_recording` error); **evidence posted on the GitHub issue and PR** when they are in scope; repeatable steps/setup; no secrets.
 
 ```text
 Behavior verification:
@@ -161,44 +192,57 @@ Behavior verification:
 
 ## Posting evidence back to GitHub
 
-When this skill is invoked from a factory parent that has a GitHub issue/PR, evidence must land in **two** places:
+When this skill is invoked from a factory parent that has a GitHub issue/PR, evidence must land in **three** places:
 
-1. **Oz run artifacts** — upload video/screenshots/manifest via the harness artifact mechanism so they appear on the Oz run.
-2. **GitHub issue (and PR when one exists)** — parent or verify worker must post a comment that embeds or links the evidence.
+1. **Oz run artifacts** — the native recording publishes automatically; upload screenshots/manifest with `upload_artifact`.
+2. **GitHub issue** — comment with the evidence files **attached** as binary assets.
+3. **GitHub PR** — when a PR exists, attach the same video (at minimum) to the PR body or a PR comment, not just a pointer to the issue.
 
 ### How to post to GitHub
 
-Prefer attaching files with `gh` so they become issue assets, not just remote links:
+Attach files with `gh` so they become real GitHub assets (`user-attachments` URLs), not just remote links. A comment that only names filenames does not count as attached evidence.
+
+The native recording is finalized on the Oz run. To attach it to GitHub, download it to the workspace first (Oz artifact download or the local recording path reported by `stop_recording`), then attach that file.
 
 ```bash
-# After evidence files exist locally in the run workspace:
+# RECORDING=<local path to the native recording reported by stop_recording
+#            or downloaded from the Oz run artifacts>
 gh issue comment <N> --repo <owner/repo> \
   --body "$(cat <<'EOF'
 ## Behavior verification evidence
 - Mode: verify
 - Status: verified | partially verified | not verified | blocked
+- Channel: computer-use | browser-use | hybrid
 - Oz verify run: https://oz.warp.dev/runs/<verify-run-id>
 - Oz implement run: https://oz.warp.dev/runs/<parent-run-id>  # if applicable
 
 ### Video
-Primary critical-path recording attached (or linked if upload fails).
+Native Oz computer-use recording of the critical path, attached below.
 
 ### Keyframes
 Screenshots attached for idle, action, success/failure states.
 EOF
 )" \
-  --attach ~/verify-behavior-<issue>/01-critical-path.mp4 \
+  --attach "$RECORDING" \
   --attach ~/verify-behavior-<issue>/01-idle.png \
   --attach ~/verify-behavior-<issue>/02-after-action.png
+```
+
+Mirror the same attachment onto the PR when one exists:
+
+```bash
+gh pr comment <PR> --repo <owner/repo> \
+  --body "Behavior verification video for #<N> — Oz verify run: https://oz.warp.dev/runs/<verify-run-id>" \
+  --attach "$RECORDING"
 ```
 
 If `--attach` is unavailable or fails, upload via `gh api` to the issue comments/assets endpoint or include durable Oz artifact URLs **and** note the upload failure.
 
 Rules:
 
-- Video first. Filename like `01-critical-path.mp4` / harness recording name.
+- Video first, from the native recorder. Never a self-produced ffmpeg file.
 - Comment must include the Oz run URL using `https://oz.warp.dev/runs/<id>` (never `app.warp.dev/run/`).
-- Do not claim verification complete until Oz artifacts exist **and** the GitHub issue comment with evidence has been posted (or an explicit blocker explains why posting failed).
+- Do not claim verification complete until the Oz recording exists **and** evidence has been posted to the issue **and** the PR (or an explicit blocker explains why posting failed).
 - Parents (implementation/triage/review) are responsible for ensuring this handoff happens if the verify child cannot comment itself.
 
 ## Guardrails
@@ -207,9 +251,10 @@ Rules:
 - Features are first-class; not bug-fix-only
 - PRODUCT.md defines stories when present
 - Multi-story verify defaults to parallel workers
-- Video required when capture is possible; screenshots are supplemental/fallback
-- When a GitHub issue is in scope, post evidence to the issue (attach video/screenshots) and include Oz run links
-- No claim of verification without Oz artifacts + GitHub evidence post (or explicit blocker)
+- Video via native `start_recording`/`stop_recording`; screenshots are keyframes, not a substitute
+- Never shell out to ffmpeg or any external screen recorder
+- When a GitHub issue/PR is in scope, attach evidence to both and include Oz run links
+- No claim of verification without the Oz recording + GitHub evidence posts (or a quoted `start_recording` failure)
 - Bounded batches; no secret leakage; no irreversible actions without human confirmation
 
 Optional `verify-behavior-local` may specialize setup/surface/fan-out limits only—not weaken evidence, privacy, or reporting.
