@@ -38,7 +38,7 @@ jobs:
           # Authenticates the `gh` CLI the agent uses for issues and labels.
           GH_TOKEN: ${{ github.token }}
         with:
-          skill: spec
+          skill: "${{ github.repository }}:spec"
           name: "Spec issue #${{ github.event.issue.number }}"
           prompt: |
             Create checked-in product and technical specs for the GitHub issue that was just labeled ready to spec.

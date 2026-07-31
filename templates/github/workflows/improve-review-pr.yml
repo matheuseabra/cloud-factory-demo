@@ -80,7 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          skill: improve-review-pr
+          skill: "${{ github.repository }}:improve-review-pr"
           name: "Improve review-pr from last-day feedback"
           prompt: |
             Use the Improve Review PR skill to run the daily outer loop over automated code-review feedback.

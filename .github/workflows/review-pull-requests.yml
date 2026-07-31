@@ -111,7 +111,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          skill: review-pr
+          skill: "${{ github.repository }}:review-pr"
           name: "Review PR #${{ github.event.pull_request.number }}"
           prompt: |
             Review GitHub pull request #${{ github.event.pull_request.number }} in this repository using the review-pr skill.

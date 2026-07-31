@@ -36,7 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         with:
-          skill: triage
+          skill: "${{ github.repository }}:triage"
           name: "Triage issue #${{ github.event.issue.number }}"
           prompt: |
             Triage GitHub issue #${{ github.event.issue.number }} in this
