@@ -19,7 +19,11 @@ from typing import Any
 
 
 ALLOWED_VERDICTS = {"APPROVE", "REJECT"}
-POWERED_BY_SUFFIX = "\n\n---\n_Powered by [Oz](https://warp.dev/oz)_\n"
+REVIEW_SIGNATURE = "Reviewed by a [Warp Factory agent]"
+POWERED_BY_SUFFIX = (
+    "\n\n---\n\n"
+    "_Reviewed by a [Warp Factory agent](https://www.warp.dev/oz)._\n"
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -194,7 +198,7 @@ def main() -> int:
     event = _event_for_verdict(verdict, args.event)
 
     body_text = body.strip()
-    if "warp.dev/oz" not in body_text.lower():
+    if REVIEW_SIGNATURE not in body_text:
         body_text = body_text + POWERED_BY_SUFFIX
 
     payload = {
