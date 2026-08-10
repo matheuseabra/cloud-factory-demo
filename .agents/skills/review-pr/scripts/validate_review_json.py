@@ -46,6 +46,16 @@ ANNOTATED_NEW_PATTERN = re.compile(r"^\[NEW:(?P<new>\d+)\] ?(?P<text>.*)$")
 ANNOTATED_CONTEXT_PATTERN = re.compile(
     r"^\[OLD:(?P<old>\d+),NEW:(?P<new>\d+)\] ?(?P<text>.*)$"
 )
+ALLOWED_COMMENT_PREFIXES = (
+    "🚨 [CRITICAL]",
+    "⚠️ [IMPORTANT]",
+    "💡 [SUGGESTION]",
+    "🧹 [NIT]",
+)
+MAX_BODY_LENGTH = 65_000
+MAX_COMMENT_COUNT = 50
+MAX_COMMENT_LENGTH = 65_000
+MAX_RANGE_LINES = 10
 
 
 def normalize_review_path(value: Any) -> str:
@@ -175,14 +185,20 @@ def validate_review_payload(
         raise ValueError("Review payload must be a JSON object.")
 
     raw_body = review.get("body")
-    if raw_body is None:
-        raw_body = review.get("summary") or ""
-    if not isinstance(raw_body, str):
-        raise ValueError("Review payload `body` must be a string.")
+    if not isinstance(raw_body, str) or not raw_body.strip():
+        raise ValueError("Review payload `body` must be a non-empty string.")
+    if len(raw_body) > MAX_BODY_LENGTH:
+        raise ValueError(
+            f"Review payload `body` must be at most {MAX_BODY_LENGTH} characters."
+        )
 
-    raw_comments = review.get("comments") or []
+    raw_comments = review.get("comments")
     if not isinstance(raw_comments, list):
         raise ValueError("Review payload `comments` must be a list.")
+    if len(raw_comments) > MAX_COMMENT_COUNT:
+        raise ValueError(
+            f"Review payload `comments` must contain at most {MAX_COMMENT_COUNT} items."
+        )
 
     normalized_comments: list[ReviewComment] = []
     errors: list[str] = []
@@ -219,6 +235,16 @@ def validate_review_payload(
         if not body:
             errors.append(f"`comments[{index}]` for `{path}` is missing `body`.")
             continue
+        if len(body) > MAX_COMMENT_LENGTH:
+            errors.append(
+                f"`comments[{index}]` for `{path}` exceeds {MAX_COMMENT_LENGTH} characters."
+            )
+            continue
+        if not body.startswith(ALLOWED_COMMENT_PREFIXES):
+            errors.append(
+                f"`comments[{index}]` for `{path}` must start with an allowed severity prefix."
+            )
+            continue
 
         allowed_lines = diff_line_map[path][side]
         if line not in allowed_lines:
@@ -247,9 +273,19 @@ def validate_review_payload(
                     f"`comments[{index}]` for `{path}` has `start_line` but is missing `start_side`; set `start_side` to `LEFT` or `RIGHT`."
                 )
                 continue
-            if start_side == side and start_line >= line:
+            if start_side != side:
                 errors.append(
-                    f"`comments[{index}]` for `{path}` has invalid `start_line`; when `start_side` matches `side`, it must be smaller than `line`."
+                    f"`comments[{index}]` for `{path}` must use the same side for the start and end of a range."
+                )
+                continue
+            if start_line >= line:
+                errors.append(
+                    f"`comments[{index}]` for `{path}` has invalid `start_line`; it must be smaller than `line`."
+                )
+                continue
+            if line - start_line + 1 > MAX_RANGE_LINES:
+                errors.append(
+                    f"`comments[{index}]` for `{path}` spans more than {MAX_RANGE_LINES} lines."
                 )
                 continue
             if start_line not in diff_line_map[path][start_side]:
@@ -329,7 +365,11 @@ def main() -> int:
         return 1
 
     diff_line_map, diff_content_map = build_diff_maps_from_annotated_diff(diff_text)
-    result = validate_review_payload(payload, diff_line_map, diff_content_map)
+    try:
+        result = validate_review_payload(payload, diff_line_map, diff_content_map)
+    except ValueError as exc:
+        print(f"review validation failed: {exc}", file=sys.stderr)
+        return 1
     errors = _validate_verdict(payload) + result.errors
     if errors:
         print("review validation failed:", file=sys.stderr)
