@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +19,11 @@ from typing import Any
 
 
 ALLOWED_VERDICTS = {"APPROVE", "REJECT"}
-POWERED_BY_SUFFIX = "\n\n---\n_Powered by [Oz](https://warp.dev/oz)_\n"
+REVIEW_SIGNATURE = "Reviewed by a [Warp Factory agent]"
+POWERED_BY_SUFFIX = (
+    "\n\n---\n\n"
+    "_Reviewed by a [Warp Factory agent](https://www.warp.dev/oz)._\n"
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -45,6 +50,10 @@ def _parse_args() -> argparse.Namespace:
         "--pr",
         type=int,
         help="Pull request number. Defaults to GitHub Actions context when available.",
+    )
+    parser.add_argument(
+        "--commit-id",
+        help="Expected PR head SHA to bind the published review to.",
     )
     parser.add_argument(
         "--skip-validation",
@@ -189,7 +198,7 @@ def main() -> int:
     event = _event_for_verdict(verdict, args.event)
 
     body_text = body.strip()
-    if "warp.dev/oz" not in body_text.lower():
+    if REVIEW_SIGNATURE not in body_text:
         body_text = body_text + POWERED_BY_SUFFIX
 
     payload = {
@@ -197,6 +206,10 @@ def main() -> int:
         "event": event,
         "comments": comments,
     }
+    if args.commit_id:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", args.commit_id):
+            raise SystemExit("publish failed: --commit-id must be a full 40-character SHA")
+        payload["commit_id"] = args.commit_id.lower()
 
     payload_path = Path("review_publish_payload.json")
 
