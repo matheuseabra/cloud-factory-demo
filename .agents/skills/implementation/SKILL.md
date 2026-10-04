@@ -23,6 +23,8 @@ If the checkout contains `.agents/skills/validate-changes-match-specs/SKILL.md`,
 
 If specs exist but the validation skill is missing, continue only if you can still manually compare the implementation against the specs. Report that the common validation skill was unavailable in the PR description and issue comment.
 
+If `gauntlet.toml` exists, the deterministic quality gate is required. Read `.agents/skills/quality-gate/SKILL.md` during validation. Missing Gauntlet or analyzer dependencies are setup blockers, not a reason to skip the gate.
+
 If the checkout contains `.agents/skills/verify-behavior/SKILL.md` and the issue has visible UI, browser, desktop, mobile, or other interactive behavior, you **must** run that skill before claiming the implementation is complete. It delegates to Oz's dedicated **`computer_use`** capability on this computer-use-enabled run — do not drive the GUI yourself and do not substitute generic remote children. Do not skip verification because PR creation failed or because automated unit tests passed.
 
 ### 3. Post an implementation-started status comment
@@ -148,6 +150,15 @@ If `PRODUCT.md` and `TECH.md` specs exist for the issue, validate the completed 
 
 Include the spec-alignment result in the PR description and final issue comment.
 
+After native checks and spec alignment, and before behavioral verification or PR creation, run the deterministic quality gate when `gauntlet.toml` exists:
+
+1. Read `.agents/skills/quality-gate/SKILL.md` and follow its investigation/repair protocol.
+2. Run `gauntlet check --changed --json` before committing. For already-committed changes, use `bash scripts/check-quality-gate.sh BASE_SHA HEAD_SHA` on the checked-out head.
+3. Resolve blocking findings or record individually justified acceptances, then rerun. Do not weaken checks or change specified production behavior to kill a mutant.
+4. Report the command, exit code, review findings, and acceptance reasons in the PR description. Do not open the PR while unexplained blocking findings or gate setup failures remain.
+
+If Gauntlet is installed without repository configuration, follow the quality-gate skill with its defaults. If neither Gauntlet nor configuration exists, keep native validation and report that the optional gate is not configured. The separate secretless PR job reruns committed changes; the trusted review agent must not execute it.
+
 ### 9. Verify visible behavior with verify-behavior
 
 **Required** when the change affects UI, browser, desktop, mobile, or other interactive behavior and `.agents/skills/verify-behavior/SKILL.md` is present. Issue text that mentions drag-and-drop, screenshots, video, computer use, browser use, or `verify-behavior` is always treated as interactive.
@@ -181,6 +192,7 @@ The PR description should include:
 - Links to `PRODUCT.md` and `TECH.md`, if used
 - Summary of the change
 - Validation commands run and their results
+- Gauntlet result, nonblocking review findings, and any accepted IDs with reasons, when configured
 - Spec-alignment validation results, if specs exist
 - Behavior verification results from `verify-behavior` when it ran, including status, durable Oz run link(s), native Oz video artifact references, and any reported screenshots (prefer platform PR artifact markdown when available)
 - Known limitations, follow-up work, or validation gaps

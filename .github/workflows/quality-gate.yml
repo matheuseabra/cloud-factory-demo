@@ -1,0 +1,70 @@
+name: Quality Gate
+
+# Executes PR code on an ephemeral runner. Never use pull_request_target here,
+# pass secrets, grant write permissions, or combine this job with trusted review.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Gauntlet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned quality tools
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/quality-tools"
+          "$RUNNER_TEMP/quality-tools/bin/python" -m pip install \
+            'gauntlet @ git+https://github.com/matheuseabra/gauntlet-cli.git@76c3006a29ddde47ca08cbea98018cb2ed72f5da' \
+            'crapper @ git+https://github.com/unclebob/crapper.git@9f1bead298b5a9d576bdd6319289fcf426e5b18a' \
+            'mutator @ git+https://github.com/unclebob/mutator.git@c57f03879a08d2afe8c7e044e86c80bb164afd30' \
+            'dryer @ git+https://github.com/unclebob/dryer.git@66ff6d21a42c04afcad89c78a80066176d1294b0' \
+            'tree-sitter-language-pack==1.20.0' 'tree-sitter==0.26.0' 'coverage==7.16.2'
+          echo "$RUNNER_TEMP/quality-tools/bin" >> "$GITHUB_PATH"
+          # Upstream grammars are downloaded during setup, before analysis.
+          "$RUNNER_TEMP/quality-tools/bin/python" -c \
+            'from tree_sitter_language_pack import prefetch; prefetch(["python", "typescript", "tsx", "javascript", "go", "rust", "java", "clojure"])'
+
+      # Consuming projects: add language runtimes and locked project dependency
+      # installation here (e.g. setup-node + npm ci). Keep the job secretless.
+      - name: Validate factory integration
+        if: hashFiles('tests/test_quality_gate.py') != ''
+        run: |
+          bash -n scripts/install-cloud-factory.sh scripts/check-quality-gate.sh
+          python3 -m unittest discover -s tests -v
+
+      - name: Run Gauntlet on PR changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-quality-gate.sh "$BASE_SHA" "$HEAD_SHA"
+
+      - name: Upload quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauntlet-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: .gauntlet/results.json
+          if-no-files-found: warn
+          retention-days: 7
