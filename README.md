@@ -6,7 +6,7 @@ The factory is organized around six stages:
 
 - **Triage** — classify incoming issues, determine implementation readiness, and route work to the right next step.
 - **Spec'ing** — turn ambiguous or broad requests into checked-in `PRODUCT.md` and `TECH.md` specs with clear behavior, constraints, and validation criteria.
-- **Implementation** — use the approved issue or spec context to make the code change, validate it, optionally verify visible behavior, and open a pull request.
+- **Implementation** — use the approved issue or spec context to make the code change, validate it, run the deterministic quality gate, optionally verify visible behavior, and open a pull request.
 - **Code review** — review pull requests for correctness, maintainability, security, and alignment with the issue or spec.
 - **Verification** — confirm proposed behavior with Oz computer-use subagents (`verify-behavior`), plus automated checks and human review before merge.
 - **Monitoring** — watch outcomes after changes land, surface regressions, and feed new findings back into triage.
@@ -37,8 +37,11 @@ flowchart LR
   ImplementLabel --> ImplementWorkflow["GitHub Actions:<br/>implement-ready-issues.yml"]
   ImplementWorkflow --> ImplementSkill["Oz implementation agent<br/>.agents/skills/implementation"]
   ImplementSkill --> ValidateSkill["Validates against specs<br/>validate-changes-match-specs"]
-  ImplementSkill -->|UI feature or fix| VerifyChange["verify-behavior<br/>parallel story workers · verify"]
-  ValidateSkill --> ImplementationPR["Implementation pull request"]
+  QualitySkill -->|UI feature or fix| VerifyChange["verify-behavior<br/>parallel story workers · verify"]
+  ValidateSkill --> QualitySkill["Gauntlet quality-gate skill"]
+  QualitySkill --> ImplementationPR["Implementation pull request"]
+  ImplementationPR --> QualityWorkflow["Secretless quality-gate.yml"]
+  QualityWorkflow --> QualityArtifact["Gauntlet findings artifact"]
   VerifyChange --> ImplementationPR
   ImplementationPR --> ReviewWorkflow["GitHub Actions:<br/>review-pull-requests.yml"]
   ReviewWorkflow --> ReviewSkill["Oz review agent<br/>.agents/skills/review-pr"]
@@ -54,6 +57,12 @@ flowchart LR
 ```
 
 The diagram shows the implemented portion of the factory today: triage, spec generation, implementation, behavioral verification via Oz cloud subagents, automated code review, and a daily outer loop that improves the review skill from human feedback. Monitoring remains a later stage in the product model.
+
+### Deterministic quality verification
+
+The `quality-gate` skill runs Gauntlet after native validation/spec alignment and before behavioral verification or PR creation. Blocking findings trigger investigation, repairs, and a rerun; Dryer similarity remains nonblocking by default. Gauntlet and its analyzers live in separate repositories.
+
+`quality-gate.yml` reruns analysis on committed PR changes using the base-to-head diff, with read-only permissions, no stored checkout credentials, and no secrets. It archives `.gauntlet/results.json` even when analysis fails. The workflow uses Gauntlet's native `--base` comparison and its shared setup action; the trusted review workflow stays separate and does not execute contributor code. A no-relevant-source pass is reported separately from native shell/workflow validation. See [setup, policy, limitations, and activation](docs/quality-gate.md).
 
 ### Behavioral verification
 
@@ -78,6 +87,7 @@ When a `PRODUCT.md` exists, it is the primary source of **user stories and accep
 - `.agents/skills/write-tech-spec/SKILL.md` — installed from `warpdotdev/common-skills`; writes the technical spec artifact after `PRODUCT.md`.
 - `.agents/skills/validate-changes-match-specs/SKILL.md` — installed from `warpdotdev/common-skills`; checks implementation diffs against `PRODUCT.md` and `TECH.md` when specs exist.
 - `.agents/skills/implementation/SKILL.md` — implements a ready issue, validates the change, optionally verifies visible behavior via `verify-behavior`, opens a PR, and reports progress back to the original issue.
+- `.agents/skills/quality-gate/SKILL.md` — runs Gauntlet, investigates structured findings, repairs blocking issues without gaming metrics, and reruns before the implementation handoff.
 - `.agents/skills/verify-behavior/SKILL.md` — shared verification skill that reproduces bugs or verifies features/fixes with video/screenshot evidence on Oz cloud agents; chooses Chrome/Puppeteer browser automation or full computer use, and fans out parallel story workers for multi-story features; invoked from triage, implementation, and review.
 - `.agents/skills/review-pr/SKILL.md` — reviews a pull request against an annotated diff and optional `PRODUCT.md`/`TECH.md` specs, writing structured findings to `review.json` for a workflow to publish, and may invoke `verify-behavior` for interactive checks.
 - `.agents/skills/improve-review-pr/SKILL.md` — daily outer loop that synthesizes human reactions to automated review comments and opens a PR to update review guidance when durable organizational knowledge is found.
@@ -90,6 +100,7 @@ This repo keeps workflow templates in `templates/github/workflows/` so they can 
 - `templates/github/workflows/triage-issues.yml` — runs Oz triage when a new GitHub issue is opened.
 - `templates/github/workflows/spec-ready-issues.yml` — runs Oz spec work when an issue receives a `Ready to spec` label and opens a PR with `PRODUCT.md` and `TECH.md`.
 - `templates/github/workflows/implement-ready-issues.yml` — runs Oz implementation when an issue receives a `Ready to implement` label.
+- `templates/github/workflows/quality-gate.yml` — executes committed PR changes through Gauntlet on a secretless runner and archives quality evidence.
 - `templates/github/workflows/review-pull-requests.yml` — runs Oz code review when a non-draft pull request is opened or updated, then publishes the resulting GitHub review.
 - `templates/github/workflows/improve-review-pr.yml` — daily (and manual) outer loop that inspects human feedback on automated reviews and may open a skill-improvement PR.
 
@@ -101,23 +112,24 @@ From the root of a consuming repository, run:
 
 ```bash
 tmp_installer="$(mktemp)"
-curl -fsSL https://raw.githubusercontent.com/warpdotdev-demos/cloud-factory-demo/main/scripts/install-cloud-factory.sh -o "$tmp_installer"
+curl -fsSL https://raw.githubusercontent.com/matheuseabra/cloud-factory-demo/main/scripts/install-cloud-factory.sh -o "$tmp_installer"
 bash "$tmp_installer"
 rm "$tmp_installer"
 ```
 
 The installer:
 
-1. Installs the `triage`, `spec`, `implementation`, `verify-behavior`, `review-pr`, and `improve-review-pr` skills from this canonical repo with `npx skills add`.
+1. Installs the `triage`, `spec`, `implementation`, `quality-gate`, `verify-behavior`, `review-pr`, and `improve-review-pr` skills from this repo with `npx skills add`.
 2. Installs `write-product-spec`, `write-tech-spec`, and `validate-changes-match-specs` from `warpdotdev/common-skills`.
 3. Copies the workflow templates from `templates/github/workflows/` into `.github/workflows/` in the consuming repository.
+4. Copies `scripts/setup-quality-tools.sh` and `gauntlet-version.txt`, creates `.gauntlet/`, adds generated-report ignore rules, and adds the starter `gauntlet.toml` only if one does not exist. Configure native checks/coverage and project dependency setup before enabling the quality check.
 
-The installed workflows expect a `WARP_API_KEY` GitHub Actions secret. Behavioral verification via `verify-behavior` requires Oz cloud computer use to be available for the account or team running the agents.
+The Oz workflows expect a `WARP_API_KEY` GitHub Actions secret. Quality Gate needs no secret and installs pinned external tools in its own environment. The implementation agent bootstraps the same pinned tools inside its own runtime with `scripts/setup-quality-tools.sh`. Python 3.12+ and Git must be available there; `WARP_AGENT_ENVIRONMENT` can select a provisioned Oz cloud environment. Behavioral verification via `verify-behavior` requires Oz cloud computer use to be available for the account or team running the agents.
 
 If you only want to install the skills without copying workflows, run:
 
 ```bash
-npx skills add warpdotdev-demos/cloud-factory-demo --skill triage --skill spec --skill implementation --skill verify-behavior --skill review-pr --skill improve-review-pr --agent warp --yes
+npx skills add matheuseabra/cloud-factory-demo --skill triage --skill spec --skill implementation --skill quality-gate --skill verify-behavior --skill review-pr --skill improve-review-pr --agent warp --yes
 npx skills add warpdotdev/common-skills --skill write-product-spec --skill write-tech-spec --skill validate-changes-match-specs --agent warp --yes
 ```
 

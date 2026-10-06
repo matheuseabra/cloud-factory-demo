@@ -1,0 +1,37 @@
+version = 1
+
+[gauntlet]
+mode = "changed"
+output = ".gauntlet/results.json"
+timeout = 120
+
+[commands]
+format = "bash -n scripts/install-cloud-factory.sh && bash -n scripts/setup-quality-tools.sh"
+test = "python3 -m unittest discover -s tests -v"
+coverage = "python3 -m coverage run -m unittest discover -s tests && python3 -m coverage lcov -o target/coverage/python/lcov.info"
+
+[tools.crapper]
+enabled = true
+threshold = 30
+
+[tools.mutator]
+enabled = true
+max_workers = 2
+timeout = 600
+
+[tools.dryer]
+enabled = true
+threshold = 0.82
+min_lines = 4
+min_nodes = 20
+
+[policy]
+crap_threshold = 30
+block_crap_regressions = true
+block_surviving_mutants = true
+block_duplicate_candidates = false
+
+[scope]
+exclude = ["**/*.generated.*", "**/migrations/**", "**/fixtures/**"]
+# Optionally focus on explicit business-logic directories:
+# include = ["src/domain/**", "src/services/**"]

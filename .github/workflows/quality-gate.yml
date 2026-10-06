@@ -1,0 +1,54 @@
+name: Quality Gate
+
+# Executes PR code on an ephemeral runner. Never use pull_request_target here,
+# pass secrets, grant write permissions, or combine this job with trusted review.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Gauntlet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Gauntlet and pinned analyzers
+        uses: matheuseabra/gauntlet-cli@2e4efd0b0990013f9ab4579c126a6df87fb59338
+
+      # Consuming projects: add language runtimes and locked project dependency
+      # installation here (e.g. setup-node + npm ci). Keep the job secretless.
+      - name: Validate factory integration
+        if: hashFiles('tests/test_quality_gate.py') != ''
+        run: |
+          bash -n scripts/install-cloud-factory.sh && bash -n scripts/setup-quality-tools.sh
+          python3 -m unittest discover -s tests -v
+
+      - name: Run Gauntlet on PR changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          rm -f .gauntlet/results.json
+          gauntlet check --base "$BASE_SHA" --json
+
+      - name: Upload quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauntlet-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: .gauntlet/results.json
+          if-no-files-found: warn
+          retention-days: 7

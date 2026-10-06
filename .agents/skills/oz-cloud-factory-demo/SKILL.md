@@ -11,7 +11,7 @@ Guide a user who is new to Oz through setting up this flow in a GitHub repositor
 new issue -> Oz triage (+ optional verify-behavior reproduce) -> Ready to spec label -> Oz spec -> PRODUCT.md + TECH.md PR -> Oz implementation (+ optional verify-behavior verify, with parallel story fan-out for features) -> pull request -> Oz review (+ optional verify-behavior)
 ```
 
-Use the canonical installer and workflows from `warpdotdev-demos/cloud-factory-demo`. Explain each action before taking it, keep secrets out of output and files, and stop at explicit activation checkpoints.
+Use the installer and workflows from `matheuseabra/cloud-factory-demo`, including the deterministic quality gate. Explain each action before taking it, keep secrets out of output and files, and stop at explicit activation checkpoints.
 
 ## Success criteria
 
@@ -71,10 +71,14 @@ Inspect the local checkout for:
 - `.agents/skills/write-tech-spec/SKILL.md`
 - `.agents/skills/validate-changes-match-specs/SKILL.md`
 - `.agents/skills/implementation/SKILL.md`
+- `.agents/skills/quality-gate/SKILL.md`
 - `.agents/skills/verify-behavior/SKILL.md`
 - `.github/workflows/triage-issues.yml`
 - `.github/workflows/spec-ready-issues.yml`
 - `.github/workflows/implement-ready-issues.yml`
+- `.github/workflows/quality-gate.yml`
+- `scripts/setup-quality-tools.sh` and `gauntlet-version.txt`
+- `gauntlet.toml`
 - `roadmap.md`
 - `vision.md`
 - Cloud Factory README sections or other local setup notes
@@ -205,7 +209,7 @@ For a **clean install**, run the canonical installer from the target repository 
 
 ```sh
 tmp_installer="$(mktemp)"
-curl -fsSL https://raw.githubusercontent.com/warpdotdev-demos/cloud-factory-demo/main/scripts/install-cloud-factory.sh -o "$tmp_installer"
+curl -fsSL https://raw.githubusercontent.com/matheuseabra/cloud-factory-demo/main/scripts/install-cloud-factory.sh -o "$tmp_installer"
 bash "$tmp_installer"
 rm "$tmp_installer"
 ```
@@ -225,10 +229,10 @@ The installer should add:
 For an **incremental Part 1 → Part 2 upgrade**, do not blindly rerun the installer if it would overwrite customized triage or implementation files. Add or update only the missing spec-flow pieces:
 
 ```sh
-npx skills add warpdotdev-demos/cloud-factory-demo --skill spec --agent warp --yes
+npx skills add matheuseabra/cloud-factory-demo --skill spec --agent warp --yes
 npx skills add warpdotdev/common-skills --skill write-product-spec --skill write-tech-spec --skill validate-changes-match-specs --agent warp --yes
 mkdir -p .github/workflows
-curl -fsSL https://raw.githubusercontent.com/warpdotdev-demos/cloud-factory-demo/main/templates/github/workflows/spec-ready-issues.yml -o .github/workflows/spec-ready-issues.yml
+curl -fsSL https://raw.githubusercontent.com/matheuseabra/cloud-factory-demo/main/templates/github/workflows/spec-ready-issues.yml -o .github/workflows/spec-ready-issues.yml
 ```
 
 Then compare the existing local files against the current canonical versions and ask before updating them:
@@ -249,6 +253,8 @@ Review the resulting diff. Explain:
 - Explain that verification children choose browser use (Chrome/Puppeteer MCP) vs computer use based on the app surface, that computer use runs only in Oz cloud sandboxes and is opt-in for the account/team, and that children should capture video by default.
 - The workflows use `warpdotdev/oz-agent-action@v1`.
 - GitHub's token supplies repository permissions; `WARP_API_KEY` authenticates Oz.
+
+Before activating the quality gate, follow `docs/quality-gate.md` in the source repository: bootstrap Gauntlet/analyzers inside the actual agent runtime with `scripts/setup-quality-tools.sh` (activate `.gauntlet/tools/bin/activate`), configure native checks and coverage in `gauntlet.toml`, and add project runtime/dependency installation to `quality-gate.yml`. The quality job executes PR code with read-only permissions and no secrets; never move it into the trusted review job. Missing tools or coverage block completion. Preserve existing customized Gauntlet configuration. After a successful PR run, explain how to require the Quality Gate / Gauntlet check in branch protection.
 
 Do not silently customize the installed skills. If the repository has special build, test, security, or contribution requirements, offer to add them to the implementation skill and show the proposed changes first.
 
@@ -280,7 +286,7 @@ The key used for automation should show the intended scope: `Team` for team-owne
 
 Never print, read back, commit, or write the key to a repository file. Confirm only that the `WARP_API_KEY` secret name exists using `gh secret list --repo "$TARGET_REPO"`.
 
-An optional `WARP_AGENT_PROFILE` repository variable may select a preconfigured Oz Agent Profile. For team-key automation, prefer a team profile. For personal-key demos, a personal profile is acceptable if the user understands it is tied to their account.
+For cloud implementation runs, use optional `WARP_AGENT_ENVIRONMENT` to select an Oz environment with Python 3.12+, Git, network setup access, and project dependencies. The pinned Oz action supports its `environment` input for cloud runs; its `profile` input only applies to local runs. Tool installation on the dispatcher does not provision a cloud agent. The implementation skill bootstraps the reviewed Gauntlet revision in that runtime.
 
 ### 5. Review and activate
 

@@ -43,6 +43,14 @@ jobs:
 
             First read `.agents/skills/implementation/SKILL.md`, then follow it exactly.
 
+            Bootstrap quality tools inside this Oz cloud runtime, before
+            modifying code: run `bash scripts/setup-quality-tools.sh`, then
+            activate `.gauntlet/tools/bin/activate` in shells running checks.
+            GitHub runner setup does not provision this remote agent. The script
+            uses the reviewed Gauntlet revision in `gauntlet-version.txt`; do not
+            alter the pin, scope, or checks to bypass a setup failure. If Python
+            3.12+, Git, or network setup is unavailable, report the precise blocker.
+
             - Repository: ${{ github.repository }}
             - Issue number: #${{ github.event.issue.number }}
             - Issue URL: ${{ github.event.issue.html_url }}
@@ -95,5 +103,6 @@ jobs:
             fully resolves it.
           warp_api_key: ${{ secrets.WARP_API_KEY }}
           profile: ${{ vars.WARP_AGENT_PROFILE || '' }}
+          environment: ${{ vars.WARP_AGENT_ENVIRONMENT || '' }}
           cloud: true
           computer_use: true

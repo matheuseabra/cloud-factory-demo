@@ -1,0 +1,39 @@
+version = 1
+
+[gauntlet]
+mode = "changed"
+output = ".gauntlet/results.json"
+timeout = 120
+
+# Configure repository-native format/lint/typecheck/test/coverage commands here.
+# Gauntlet can infer test/coverage commands for recognized project manifests.
+# Coverage must use a format supported by the analyzers (e.g. LCOV for Python/TS).
+# [commands]
+# test = "npm test"
+# coverage = "npm run coverage"
+
+[tools.crapper]
+enabled = true
+threshold = 30
+
+[tools.mutator]
+enabled = true
+max_workers = 2
+timeout = 600
+
+[tools.dryer]
+enabled = true
+threshold = 0.82
+min_lines = 4
+min_nodes = 20
+
+[policy]
+crap_threshold = 30
+block_crap_regressions = true
+block_surviving_mutants = true
+block_duplicate_candidates = false
+
+[scope]
+exclude = ["**/*.generated.*", "**/migrations/**", "**/fixtures/**"]
+# Optionally focus on explicit business-logic directories:
+# include = ["src/domain/**", "src/services/**"]
