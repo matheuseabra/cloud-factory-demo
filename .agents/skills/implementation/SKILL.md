@@ -23,7 +23,7 @@ If the checkout contains `.agents/skills/validate-changes-match-specs/SKILL.md`,
 
 If specs exist but the validation skill is missing, continue only if you can still manually compare the implementation against the specs. Report that the common validation skill was unavailable in the PR description and issue comment.
 
-If `gauntlet.toml` exists, the deterministic quality gate is required. Read `.agents/skills/quality-gate/SKILL.md` during validation. Missing Gauntlet or analyzer dependencies are setup blockers, not a reason to skip the gate.
+If `gauntlet.toml` exists, the deterministic quality gate is required. Read `.agents/skills/quality-gate/SKILL.md`. Before modifying code, run `bash scripts/setup-quality-tools.sh` inside this implementation environment and activate `.gauntlet/tools/bin/activate` in shells running validation. The bootstrap uses the reviewed revision in `gauntlet-version.txt` and delegates installation to Gauntlet's shared installer. GitHub runner setup does not provision an Oz cloud runtime. Python 3.12+, Git, and network access are prerequisites; report setup failures as blockers, not a reason to skip the gate. In other integrations without this bootstrap, use the documented project setup.
 
 If the checkout contains `.agents/skills/verify-behavior/SKILL.md` and the issue has visible UI, browser, desktop, mobile, or other interactive behavior, you **must** run that skill before claiming the implementation is complete. It delegates to Oz's dedicated **`computer_use`** capability on this computer-use-enabled run — do not drive the GUI yourself and do not substitute generic remote children. Do not skip verification because PR creation failed or because automated unit tests passed.
 
@@ -153,7 +153,7 @@ Include the spec-alignment result in the PR description and final issue comment.
 After native checks and spec alignment, and before behavioral verification or PR creation, run the deterministic quality gate when `gauntlet.toml` exists:
 
 1. Read `.agents/skills/quality-gate/SKILL.md` and follow its investigation/repair protocol.
-2. Run `gauntlet check --changed --json` before committing. For already-committed changes, use `bash scripts/check-quality-gate.sh BASE_SHA HEAD_SHA` on the checked-out head.
+2. Run `gauntlet check --changed --json` before committing. For already-committed changes, check out the intended head and run `gauntlet check --base BASE_SHA --json` with a clean tracked working tree and fetched base history.
 3. Resolve blocking findings or record individually justified acceptances, then rerun. Do not weaken checks or change specified production behavior to kill a mutant.
 4. Report the command, exit code, review findings, and acceptance reasons in the PR description. Do not open the PR while unexplained blocking findings or gate setup failures remain.
 

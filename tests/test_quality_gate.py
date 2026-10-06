@@ -1,12 +1,11 @@
-"""Exercise committed diff selection, exit propagation, and installer behavior."""
+"""Test installer preservation and bootstrap inside an agent runtime."""
 
-import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,27 +20,13 @@ class RepositoryFixture:
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.env = os.environ | {"PATH": f"{self.bin}:{os.environ['PATH']}"}
-        self.git("init", "-q")
-        self.git("config", "user.name", "Fixture")
-        self.git("config", "user.email", "fixture@example.invalid")
-        self.write("unchanged.py", "def untouched(): return 1\n")
-        self.base = self.commit()
-        self.log = self.root / "arguments.json"
-        self.env["ARGUMENT_LOG"] = str(self.log)
-        self.executable("gauntlet", """#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
-Path(os.environ['ARGUMENT_LOG']).write_text(json.dumps(sys.argv[1:]))
-code = int(os.environ.get('GATE_EXIT', '0'))
-result = {'version': 1, 'status': 'failed' if code else 'passed'}
-Path('.gauntlet/results.json').write_text(json.dumps(result))
-print(json.dumps(result))
-sys.exit(code)
-""")
+        self.git(self.repo, "init", "-q")
+        self.git(self.repo, "config", "user.name", "Fixture")
+        self.git(self.repo, "config", "user.email", "fixture@example.invalid")
 
-    def git(self, *arguments):
+    def git(self, repo, *arguments):
         return subprocess.check_output(
-            ["git", *arguments], cwd=self.repo, stderr=subprocess.PIPE, text=True
+            ["git", *arguments], cwd=repo, stderr=subprocess.PIPE, text=True
         ).strip()
 
     def write(self, name, text):
@@ -54,100 +39,74 @@ sys.exit(code)
         path.write_text(text)
         path.chmod(0o755)
 
-    def commit(self):
-        self.git("add", ".")
-        self.git("commit", "-qm", "fixture")
-        return self.git("rev-parse", "HEAD")
 
-    def gate(self, base=None, head=None):
+class BootstrapTests(RepositoryFixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.upstream = self.root / "upstream"
+        self.upstream.mkdir()
+        for args in [("init", "-q"), ("config", "user.name", "Fixture"),
+                     ("config", "user.email", "fixture@example.invalid")]:
+            self.git(self.upstream, *args)
+        (self.upstream / "scripts").mkdir()
+        (self.upstream / "scripts/setup-tools.sh").write_text(
+            '#!/bin/bash\nset -eu\nmkdir -p "$1/bin"\n'
+            'printf "#!/bin/sh\\nexit 0\\n" > "$1/bin/gauntlet"\n'
+            'chmod +x "$1/bin/gauntlet"\n'
+            'printf "%s\\n" "$1" > "$BOOTSTRAP_LOG"\n'
+            'exit "${BOOTSTRAP_EXIT:-0}"\n'
+        )
+        self.git(self.upstream, "add", ".")
+        self.git(self.upstream, "commit", "-qm", "setup fixture")
+        revision = self.git(self.upstream, "rev-parse", "HEAD")
+        self.write("gauntlet-version.txt", revision + "\n")
+        (self.repo / "scripts").mkdir()
+        shutil.copyfile(ROOT / "scripts/setup-quality-tools.sh",
+                        self.repo / "scripts/setup-quality-tools.sh")
+        self.env["UPSTREAM_FIXTURE"] = str(self.upstream)
+        self.env["BOOTSTRAP_LOG"] = str(self.root / "bootstrap.log")
+        self.env["REAL_GIT"] = shutil.which("git")
+        self.executable("git", '''#!/usr/bin/env python3
+import os, sys
+args = [os.environ['UPSTREAM_FIXTURE'] if arg ==
+        'https://github.com/matheuseabra/gauntlet-cli.git' else arg for arg in sys.argv[1:]]
+os.execv(os.environ['REAL_GIT'], [os.environ['REAL_GIT'], *args])
+''')
+
+    def bootstrap(self):
         return subprocess.run(
-            ["bash", str(ROOT / "scripts/check-quality-gate.sh"),
-             base or self.base, head or self.git("rev-parse", "HEAD")],
-            cwd=self.repo, env=self.env, capture_output=True, text=True,
+            ["bash", str(self.repo / "scripts/setup-quality-tools.sh")],
+            cwd=self.root, env=self.env, capture_output=True, text=True,
         )
 
-    def arguments(self):
-        return json.loads(self.log.read_text())
+    def test_setup_runs_inside_agent_checkout_and_keeps_installed_tool(self):
+        result = self.bootstrap()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        expected = self.repo / ".gauntlet/tools"
+        self.assertEqual(Path(self.env["BOOTSTRAP_LOG"]).read_text().strip(), str(expected))
+        self.assertTrue((expected / "bin/gauntlet").is_file())
 
+    def test_setup_failure_propagates(self):
+        self.env["BOOTSTRAP_EXIT"] = "7"
+        self.assertEqual(self.bootstrap().returncode, 7)
 
-class QualityGateTests(RepositoryFixture, unittest.TestCase):
-    def test_committed_paths_preserve_unusual_names_and_ignore_deletions(self):
-        names = ["src/a space.py", "src/a\nnewline.py", "-option.py"]
-        for name in names:
-            self.write(name, "def value(): return 2\n")
-        (self.repo / "unchanged.py").unlink()
-        self.commit()
-        result = self.gate()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.arguments()[:5],
-                         ["check", "--all", "--json", "--output", ".gauntlet/results.json"])
-        self.assertCountEqual(self.arguments()[5:], [f"./{name}" for name in names])
-        self.assertEqual(json.loads(result.stdout)["status"], "passed")
-
-    def test_rename_analyzes_new_path(self):
-        self.git("mv", "unchanged.py", "renamed.py")
-        self.commit()
-        self.assertEqual(self.gate().returncode, 0)
-        self.assertEqual(self.arguments()[5:], ["./renamed.py"])
-
-    def test_uses_merge_base_instead_of_base_tip(self):
-        self.git("checkout", "-qb", "base-branch")
-        self.write("base-only.py", "def unrelated(): return 1\n")
-        base_tip = self.commit()
-        self.git("checkout", "-qb", "feature", self.base)
-        self.write("feature.py", "def feature(): return 2\n")
-        self.commit()
-        self.assertEqual(self.gate(base=base_tip).returncode, 0)
-        self.assertEqual(self.arguments()[5:], ["./feature.py"])
-
-    def test_empty_diff_has_explicit_empty_scope_and_cleans_it_up(self):
-        self.assertEqual(self.gate().returncode, 0)
-        scope = Path(self.arguments()[5])
-        self.assertEqual(scope.parent, self.repo / ".gauntlet")
-        self.assertFalse(scope.exists())
-
-    def test_all_gauntlet_failure_codes_propagate_with_report(self):
-        self.write("changed.py", "def changed(): return 1\n")
-        self.commit()
-        for code in range(1, 6):
-            with self.subTest(code=code):
-                self.env["GATE_EXIT"] = str(code)
-                self.assertEqual(self.gate().returncode, code)
-                report = json.loads((self.repo / ".gauntlet/results.json").read_text())
-                self.assertEqual(report["status"], "failed")
-
-    def test_wrong_checkout_and_dirty_tracked_tree_are_rejected(self):
-        self.write("changed.py", "def changed(): return 1\n")
-        self.commit()
-        self.assertEqual(self.gate(head=self.base).returncode, 4)
-        self.write("changed.py", "def changed(): return 2\n")
-        self.assertEqual(self.gate().returncode, 4)
-        self.assertFalse(self.log.exists())
-
-    def test_missing_base_does_not_fall_back_to_full_scan(self):
-        self.assertNotEqual(self.gate(base="0" * 40).returncode, 0)
-        self.assertFalse(self.log.exists())
-
-    def test_missing_cli_removes_stale_report_and_fails(self):
-        (self.bin / "gauntlet").unlink()
-        self.env["PATH"] = f"{self.bin}:/usr/bin:/bin"
-        self.write(".gauntlet/results.json", '{"status":"passed"}')
-        self.assertEqual(self.gate().returncode, 127)
-        self.assertFalse((self.repo / ".gauntlet/results.json").exists())
+    def test_invalid_pin_fails_before_installation(self):
+        self.write("gauntlet-version.txt", "main\n")
+        self.assertEqual(self.bootstrap().returncode, 4)
+        self.assertFalse(Path(self.env["BOOTSTRAP_LOG"]).exists())
 
 
 class InstallerTests(RepositoryFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.env["SOURCE_REPO"] = str(ROOT)
-        self.executable("npx", "#!/bin/sh\nexit \"${NPX_EXIT:-0}\"\n")
-        self.executable("curl", """#!/usr/bin/env python3
+        self.executable("npx", '#!/bin/sh\nexit "${NPX_EXIT:-0}"\n')
+        self.executable("curl", '''#!/usr/bin/env python3
 import os, shutil, sys
 from pathlib import Path
-url = sys.argv[2]
-relative = url.split('/main/', 1)[1]
+relative = sys.argv[2].split('/main/', 1)[1]
 shutil.copyfile(Path(os.environ['SOURCE_REPO']) / relative, sys.argv[4])
-""")
+''')
 
     def install(self):
         return subprocess.run(
@@ -159,7 +118,9 @@ shutil.copyfile(Path(os.environ['SOURCE_REPO']) / relative, sys.argv[4])
         self.assertEqual(self.install().returncode, 0)
         self.assertEqual((self.repo / "gauntlet.toml").read_bytes(),
                          (ROOT / "templates/gauntlet.toml").read_bytes())
-        self.assertTrue((self.repo / "scripts/check-quality-gate.sh").is_file())
+        self.assertTrue((self.repo / "scripts/setup-quality-tools.sh").is_file())
+        self.assertEqual((self.repo / "gauntlet-version.txt").read_bytes(),
+                         (ROOT / "gauntlet-version.txt").read_bytes())
         self.assertEqual((self.repo / ".github/workflows/quality-gate.yml").read_bytes(),
                          (ROOT / "templates/github/workflows/quality-gate.yml").read_bytes())
         self.write("gauntlet.toml", "# custom configuration\n")
@@ -174,9 +135,14 @@ shutil.copyfile(Path(os.environ['SOURCE_REPO']) / relative, sys.argv[4])
 
 
 class ContractTests(unittest.TestCase):
-    def test_live_workflow_matches_installable_template(self):
-        self.assertEqual((ROOT / ".github/workflows/quality-gate.yml").read_bytes(),
-                         (ROOT / "templates/github/workflows/quality-gate.yml").read_bytes())
+    def test_live_workflows_match_installable_templates_and_tool_pin(self):
+        for name in ("quality-gate.yml", "implement-ready-issues.yml"):
+            self.assertEqual((ROOT / ".github/workflows" / name).read_bytes(),
+                             (ROOT / "templates/github/workflows" / name).read_bytes())
+        revision = (ROOT / "gauntlet-version.txt").read_text().strip()
+        self.assertRegex(revision, r"^[0-9a-f]{40}$")
+        workflow = (ROOT / ".github/workflows/quality-gate.yml").read_text()
+        self.assertIn("uses: matheuseabra/gauntlet-cli@" + revision, workflow)
 
 
 if __name__ == "__main__":

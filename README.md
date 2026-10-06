@@ -37,7 +37,7 @@ flowchart LR
   ImplementLabel --> ImplementWorkflow["GitHub Actions:<br/>implement-ready-issues.yml"]
   ImplementWorkflow --> ImplementSkill["Oz implementation agent<br/>.agents/skills/implementation"]
   ImplementSkill --> ValidateSkill["Validates against specs<br/>validate-changes-match-specs"]
-  ImplementSkill -->|UI feature or fix| VerifyChange["verify-behavior<br/>parallel story workers · verify"]
+  QualitySkill -->|UI feature or fix| VerifyChange["verify-behavior<br/>parallel story workers · verify"]
   ValidateSkill --> QualitySkill["Gauntlet quality-gate skill"]
   QualitySkill --> ImplementationPR["Implementation pull request"]
   ImplementationPR --> QualityWorkflow["Secretless quality-gate.yml"]
@@ -62,7 +62,7 @@ The diagram shows the implemented portion of the factory today: triage, spec gen
 
 The `quality-gate` skill runs Gauntlet after native validation/spec alignment and before behavioral verification or PR creation. Blocking findings trigger investigation, repairs, and a rerun; Dryer similarity remains nonblocking by default. Gauntlet and its analyzers live in separate repositories.
 
-`quality-gate.yml` reruns analysis on committed PR changes using the base-to-head diff, with read-only permissions, no stored checkout credentials, and no secrets. It archives `.gauntlet/results.json` even when analysis fails. The trusted review workflow stays separate and does not execute contributor code. See [setup, policy, limitations, and activation](docs/quality-gate.md).
+`quality-gate.yml` reruns analysis on committed PR changes using the base-to-head diff, with read-only permissions, no stored checkout credentials, and no secrets. It archives `.gauntlet/results.json` even when analysis fails. The workflow uses Gauntlet's native `--base` comparison and its shared setup action; the trusted review workflow stays separate and does not execute contributor code. A no-relevant-source pass is reported separately from native shell/workflow validation. See [setup, policy, limitations, and activation](docs/quality-gate.md).
 
 ### Behavioral verification
 
@@ -122,9 +122,9 @@ The installer:
 1. Installs the `triage`, `spec`, `implementation`, `quality-gate`, `verify-behavior`, `review-pr`, and `improve-review-pr` skills from this repo with `npx skills add`.
 2. Installs `write-product-spec`, `write-tech-spec`, and `validate-changes-match-specs` from `warpdotdev/common-skills`.
 3. Copies the workflow templates from `templates/github/workflows/` into `.github/workflows/` in the consuming repository.
-4. Copies `scripts/check-quality-gate.sh`, creates `.gauntlet/`, adds generated-report ignore rules, and adds the starter `gauntlet.toml` only if one does not exist. Configure native checks/coverage and project dependency setup before enabling the quality check.
+4. Copies `scripts/setup-quality-tools.sh` and `gauntlet-version.txt`, creates `.gauntlet/`, adds generated-report ignore rules, and adds the starter `gauntlet.toml` only if one does not exist. Configure native checks/coverage and project dependency setup before enabling the quality check.
 
-The Oz workflows expect a `WARP_API_KEY` GitHub Actions secret. Quality Gate needs no secret and installs pinned external tools in its own environment. Local agent environments also need the [documented tool setup](docs/quality-gate.md). Behavioral verification via `verify-behavior` requires Oz cloud computer use to be available for the account or team running the agents.
+The Oz workflows expect a `WARP_API_KEY` GitHub Actions secret. Quality Gate needs no secret and installs pinned external tools in its own environment. The implementation agent bootstraps the same pinned tools inside its own runtime with `scripts/setup-quality-tools.sh`. Python 3.12+ and Git must be available there; `WARP_AGENT_ENVIRONMENT` can select a provisioned Oz cloud environment. Behavioral verification via `verify-behavior` requires Oz cloud computer use to be available for the account or team running the agents.
 
 If you only want to install the skills without copying workflows, run:
 

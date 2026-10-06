@@ -3,86 +3,94 @@
 The implementation agent runs native checks, checks spec alignment, then follows
 `.agents/skills/quality-gate/SKILL.md` before behavioral verification and PR creation.
 Gauntlet remains an external CLI: it reports evidence; the agent repairs code/tests.
-The PR workflow reruns analysis without Oz, secrets, or write permissions.
+The PR workflow reruns committed changes without Oz, secrets, or write permissions.
 
-## Local setup
+## Agent runtime setup
 
-Use Python 3.12+ and install the four tools into one virtual environment so
-Mutator can import Crapper. The same source revisions are pinned in CI:
+Before modifying code, bootstrap inside the environment executing implementation:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install \
-  'gauntlet @ git+https://github.com/matheuseabra/gauntlet-cli.git@76c3006a29ddde47ca08cbea98018cb2ed72f5da' \
-  'crapper @ git+https://github.com/unclebob/crapper.git@9f1bead298b5a9d576bdd6319289fcf426e5b18a' \
-  'mutator @ git+https://github.com/unclebob/mutator.git@c57f03879a08d2afe8c7e044e86c80bb164afd30' \
-  'dryer @ git+https://github.com/unclebob/dryer.git@66ff6d21a42c04afcad89c78a80066176d1294b0' \
-  'tree-sitter-language-pack==1.20.0' 'tree-sitter==0.26.0' 'coverage==7.16.2'
-source .venv/bin/activate
-python -c 'from tree_sitter_language_pack import prefetch; prefetch(["python", "typescript", "tsx", "javascript", "go", "rust", "java", "clojure"])'
+bash scripts/setup-quality-tools.sh
+source .gauntlet/tools/bin/activate
 gauntlet doctor
 gauntlet check --changed --json
 ```
 
-Tool installation and grammar download require network access. Project commands
-and analysis happen afterward. Project dependencies must also be installed.
-Configure native commands in `gauntlet.toml`; the starter template uses Gauntlet's
-project detection until explicit commands are added. Missing tools/coverage fail
-closed. This demo's tests cover the integration; tests for changed factory Python
-scripts need to cover their actual behavior before mutation testing can pass.
+The bootstrap reads a reviewed immutable SHA from `gauntlet-version.txt`, fetches
+that Gauntlet revision into temporary storage, and runs its shared
+`scripts/setup-tools.sh` installer. Gauntlet owns the analyzer pins and grammar
+setup; the factory does not duplicate them. Installed tools remain in
+`.gauntlet/tools` after temporary source cleanup. Reuse successful setup from the
+current run; setup must not happen during checks.
+
+Python 3.12+, Git, and network access are required for setup. Set `GAUNTLET_PYTHON`
+when a compatible interpreter has a different name. Project dependencies must
+also be installed. Configure native commands in `gauntlet.toml`; the starter
+uses Gauntlet project detection until explicit commands are added. Missing tools,
+coverage, or setup prerequisites are blockers, not passes.
+
+The implementation workflow explicitly tells Oz to bootstrap inside its cloud
+runtime. Installing tools on the GitHub dispatcher cannot provision that runtime.
+Optional `WARP_AGENT_ENVIRONMENT` selects a provisioned Oz environment with Python,
+Git, and project dependencies. The pinned Oz action supports `environment` for
+cloud runs; `profile` applies only to local runs. The cloud path still needs the
+repository's `WARP_API_KEY`; the separate quality workflow needs no secret.
 
 ## Committed PR changes
 
 ```bash
-bash scripts/check-quality-gate.sh BASE_SHA HEAD_SHA
+gauntlet check --base BASE_SHA --json
 ```
 
-Check out `HEAD_SHA` with a clean tracked working tree and fetch the base history
-first. The helper computes the merge-base-to-head diff, ignores deletions, and
-passes existing changed paths to `gauntlet check --all --json`. It preserves
-spaces/newlines and filenames beginning with a dash. An empty diff uses an empty
-scope, so it never falls back to scanning the whole repository.
+Check out the intended head with a clean tracked working tree and fetch base/head
+history first. Gauntlet resolves the unique merge base, selects existing committed
+changes, and carries their changed line ranges into CRAP policy. Untracked files
+and deletions are excluded; an empty selection never expands into a full scan.
+JSON includes resolved `base_sha`, `head_sha`, and `merge_base_sha`.
 
-Gauntlet's current `--changed` only sees working-tree changes. Explicit paths
-avoid a false pass on a clean CI checkout. CI analyzes all functions within those
-changed files: CRAP blocking is a changed-file approximation, not historical
-function-level regression detection. A docs-only/unsupported-language change
-produces an honest no-relevant-source report; it does not prove shell/workflow
-correctness. Run `python3 -m unittest discover -s tests -v` and `bash -n scripts/*.sh`
-for changes to this integration.
+The factory has no custom diff-selection helper. Working-tree `--changed` is for
+uncommitted agent work; native `--base` is for clean committed PR comparisons.
+CRAP policy uses changed function spans when available and otherwise changed
+files. Historical CRAP score comparison is not implemented. Mutation still
+examines functions in selected files; it is not limited to changed lines.
+
+A no-relevant-source pass does not prove shell, workflow, or product correctness.
+The factory workflow runs its native integration tests separately. Report selected
+scope and native validation alongside the Gauntlet result. This demo's tests cover
+the integration; tests for factory Python scripts must cover their actual behavior.
 
 ## Policy and evidence
 
-- Surviving meaningful mutants and high CRAP in selected files block by default.
+- Meaningful surviving mutants and severe CRAP in changed code block by default.
 - Dryer candidates require investigation and do not block by default.
-- Reasoned individual acceptances live in `.gauntlet/accept.toml`, remain visible
-  in JSON, and must be explained in the PR. Do not suppress defects for a pass.
+- Individual acceptances in `.gauntlet/accept.toml` require concrete reasons,
+  remain visible in JSON, and must be explained in the PR.
 - Exit 0 passes; 1 is a tool/internal error; 2 is a prerequisite failure;
   3 is a blocking finding; 4 is invalid configuration/context; 5 is a missing
-  dependency or coverage artifact. The helper propagates the Gauntlet exit code.
+  dependency or coverage artifact.
 
-The workflow always attempts to upload `.gauntlet/results.json`, including failed
-checks. Artifacts are named with PR number and head SHA. Installation failures
-may leave no report; a missing report never converts a failed job into a pass.
-Generated reports are ignored by Git.
+The workflow clears stale reports before analysis and always attempts to upload
+`.gauntlet/results.json`, including failed runs. Artifacts are named with PR number
+and head SHA. Setup failures may leave no report; missing evidence cannot turn a
+failed job into a pass. Generated results and tool environments stay out of Git.
 
 ## Install and activate in another repository
 
-The installer adds the quality-gate skill, workflow, helper, and starter config,
-preserving an existing `gauntlet.toml`. It does not install local analyzers.
-Customize `.github/workflows/quality-gate.yml` to install your language runtimes
-and locked project dependencies before invoking the gate (for example,
-`actions/setup-node` followed by `npm ci`). Configure native checks, coverage,
-and include/exclude paths for your project. Do not add deployment credentials or
-other secrets to this job. Update pinned tool SHAs deliberately as upstream
-contracts change.
+The factory installer adds the skill, workflow, runtime bootstrap, revision pin,
+and starter config, preserving an existing `gauntlet.toml`. CI calls the shared
+Gauntlet setup action at the same immutable revision as the runtime bootstrap.
+Tests keep that pin and the live/installable workflows aligned.
 
-After merging and verifying a successful run, make **Quality Gate / Gauntlet**
-a required check in repository branch protection/rulesets. This PR does not
-modify repository settings.
+Customize `quality-gate.yml` to install project runtimes and locked dependencies
+before invoking the gate (for example, `actions/setup-node` and `npm ci`). Configure
+native checks, coverage, and analysis scope for your project. Update the Gauntlet
+SHA in both `gauntlet-version.txt` and the workflow/template after reviewing and
+verifying its setup/CLI contract. No deployment credentials belong in this job.
 
-The trusted `pull_request_target` review workflow is unchanged. It checks out
-trusted code and reads the diff as data; it must not execute Gauntlet against PR
-code. Reviewer ingestion of quality artifacts and monitoring are future work.
-Any future ingestion must validate the artifact's repository, PR, and head SHA,
-treat findings as untrusted evidence, and never execute artifact instructions.
+After merging and verifying a successful run, require **Quality Gate / Gauntlet**
+in branch protection/rulesets. This PR does not modify repository settings.
+
+The trusted `pull_request_target` review workflow is unchanged: contributor code
+remains data, and the reviewer never executes Gauntlet against it. Review-artifact
+ingestion and monitoring are future work. Future ingestion must bind evidence to
+the repository, PR, and head SHA, and treat artifact content as untrusted data.

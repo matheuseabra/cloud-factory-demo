@@ -77,7 +77,7 @@ Inspect the local checkout for:
 - `.github/workflows/spec-ready-issues.yml`
 - `.github/workflows/implement-ready-issues.yml`
 - `.github/workflows/quality-gate.yml`
-- `scripts/check-quality-gate.sh`
+- `scripts/setup-quality-tools.sh` and `gauntlet-version.txt`
 - `gauntlet.toml`
 - `roadmap.md`
 - `vision.md`
@@ -254,7 +254,7 @@ Review the resulting diff. Explain:
 - The workflows use `warpdotdev/oz-agent-action@v1`.
 - GitHub's token supplies repository permissions; `WARP_API_KEY` authenticates Oz.
 
-Before activating the quality gate, follow `docs/quality-gate.md` in the source repository: install the local Gauntlet/analyzer tools, configure native checks and coverage in `gauntlet.toml`, and add project runtime/dependency installation to `quality-gate.yml`. The quality job executes PR code with read-only permissions and no secrets; never move it into the trusted review job. Missing tools or coverage block completion. Preserve existing customized Gauntlet configuration. After a successful PR run, explain how to require the Quality Gate / Gauntlet check in branch protection.
+Before activating the quality gate, follow `docs/quality-gate.md` in the source repository: bootstrap Gauntlet/analyzers inside the actual agent runtime with `scripts/setup-quality-tools.sh` (activate `.gauntlet/tools/bin/activate`), configure native checks and coverage in `gauntlet.toml`, and add project runtime/dependency installation to `quality-gate.yml`. The quality job executes PR code with read-only permissions and no secrets; never move it into the trusted review job. Missing tools or coverage block completion. Preserve existing customized Gauntlet configuration. After a successful PR run, explain how to require the Quality Gate / Gauntlet check in branch protection.
 
 Do not silently customize the installed skills. If the repository has special build, test, security, or contribution requirements, offer to add them to the implementation skill and show the proposed changes first.
 
@@ -286,7 +286,7 @@ The key used for automation should show the intended scope: `Team` for team-owne
 
 Never print, read back, commit, or write the key to a repository file. Confirm only that the `WARP_API_KEY` secret name exists using `gh secret list --repo "$TARGET_REPO"`.
 
-An optional `WARP_AGENT_PROFILE` repository variable may select a preconfigured Oz Agent Profile. For team-key automation, prefer a team profile. For personal-key demos, a personal profile is acceptable if the user understands it is tied to their account.
+For cloud implementation runs, use optional `WARP_AGENT_ENVIRONMENT` to select an Oz environment with Python 3.12+, Git, network setup access, and project dependencies. The pinned Oz action supports its `environment` input for cloud runs; its `profile` input only applies to local runs. Tool installation on the dispatcher does not provision a cloud agent. The implementation skill bootstraps the reviewed Gauntlet revision in that runtime.
 
 ### 5. Review and activate
 

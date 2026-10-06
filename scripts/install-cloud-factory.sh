@@ -32,7 +32,8 @@ curl -fsSL "${RAW_BASE}/templates/github/workflows/improve-review-pr.yml" -o .gi
 curl -fsSL "${RAW_BASE}/templates/github/workflows/quality-gate.yml" -o .github/workflows/quality-gate.yml
 
 mkdir -p scripts .gauntlet
-curl -fsSL "${RAW_BASE}/scripts/check-quality-gate.sh" -o scripts/check-quality-gate.sh
+curl -fsSL "${RAW_BASE}/scripts/setup-quality-tools.sh" -o scripts/setup-quality-tools.sh
+curl -fsSL "${RAW_BASE}/gauntlet-version.txt" -o gauntlet-version.txt
 if [ ! -e gauntlet.toml ]; then
   curl -fsSL "${RAW_BASE}/templates/gauntlet.toml" -o gauntlet.toml
 else

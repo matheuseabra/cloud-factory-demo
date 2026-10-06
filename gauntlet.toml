@@ -6,7 +6,7 @@ output = ".gauntlet/results.json"
 timeout = 120
 
 [commands]
-format = "bash -n scripts/install-cloud-factory.sh scripts/check-quality-gate.sh"
+format = "bash -n scripts/install-cloud-factory.sh && bash -n scripts/setup-quality-tools.sh"
 test = "python3 -m unittest discover -s tests -v"
 coverage = "python3 -m coverage run -m unittest discover -s tests && python3 -m coverage lcov -o target/coverage/python/lcov.info"
 

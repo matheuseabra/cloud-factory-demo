@@ -26,39 +26,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install pinned quality tools
-        run: |
-          set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/quality-tools"
-          "$RUNNER_TEMP/quality-tools/bin/python" -m pip install \
-            'gauntlet @ git+https://github.com/matheuseabra/gauntlet-cli.git@76c3006a29ddde47ca08cbea98018cb2ed72f5da' \
-            'crapper @ git+https://github.com/unclebob/crapper.git@9f1bead298b5a9d576bdd6319289fcf426e5b18a' \
-            'mutator @ git+https://github.com/unclebob/mutator.git@c57f03879a08d2afe8c7e044e86c80bb164afd30' \
-            'dryer @ git+https://github.com/unclebob/dryer.git@66ff6d21a42c04afcad89c78a80066176d1294b0' \
-            'tree-sitter-language-pack==1.20.0' 'tree-sitter==0.26.0' 'coverage==7.16.2'
-          echo "$RUNNER_TEMP/quality-tools/bin" >> "$GITHUB_PATH"
-          # Upstream grammars are downloaded during setup, before analysis.
-          "$RUNNER_TEMP/quality-tools/bin/python" -c \
-            'from tree_sitter_language_pack import prefetch; prefetch(["python", "typescript", "tsx", "javascript", "go", "rust", "java", "clojure"])'
+      - name: Set up Gauntlet and pinned analyzers
+        uses: matheuseabra/gauntlet-cli@2e4efd0b0990013f9ab4579c126a6df87fb59338
 
       # Consuming projects: add language runtimes and locked project dependency
       # installation here (e.g. setup-node + npm ci). Keep the job secretless.
       - name: Validate factory integration
         if: hashFiles('tests/test_quality_gate.py') != ''
         run: |
-          bash -n scripts/install-cloud-factory.sh scripts/check-quality-gate.sh
+          bash -n scripts/install-cloud-factory.sh && bash -n scripts/setup-quality-tools.sh
           python3 -m unittest discover -s tests -v
 
       - name: Run Gauntlet on PR changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: bash scripts/check-quality-gate.sh "$BASE_SHA" "$HEAD_SHA"
+        run: |
+          rm -f .gauntlet/results.json
+          gauntlet check --base "$BASE_SHA" --json
 
       - name: Upload quality evidence
         if: always()
